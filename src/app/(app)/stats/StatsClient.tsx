@@ -189,6 +189,12 @@ export function StatsClient({
 
   const totalEntries = chartEntries.length;
 
+  // Lifetime (within loaded window) totals for the current scope.
+  const totalEntriesAll = scoped.length;
+  const totalPagesAll = +scoped
+    .reduce((s, e) => s + (e.pages_equiv ? +e.pages_equiv : 0), 0)
+    .toFixed(1);
+
   return (
     <div className="flex h-full flex-col overflow-y-auto pb-8">
       <header className="px-5 pt-7 pb-3">
@@ -246,6 +252,20 @@ export function StatsClient({
 
         {/* Stat cards */}
         <div className="grid grid-cols-2 gap-3">
+          {reading && (
+            <>
+              <StatCard
+                label="Total entries"
+                value={totalEntriesAll}
+                sub="logged"
+              />
+              <StatCard
+                label="Total pages"
+                value={totalPagesAll}
+                sub={`≈ ${Math.round(totalPagesAll / 20)} juz`}
+              />
+            </>
+          )}
           {scope === "mine" ? (
             <>
               <StatCard label="Current streak" value={streak} sub="days" />
