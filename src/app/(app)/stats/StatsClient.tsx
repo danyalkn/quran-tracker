@@ -5,8 +5,6 @@ import {
   ResponsiveContainer,
   BarChart,
   Bar,
-  LineChart,
-  Line,
   PieChart,
   Pie,
   Cell,
@@ -29,8 +27,6 @@ import {
 import { cn } from "@/lib/cn";
 
 type Scope = "mine" | "group";
-
-const REVISION_COLOR = "color-mix(in srgb, var(--accent) 32%, var(--surface-2))";
 
 /** Recharts paints via SVG attributes, which don't resolve CSS variables — so
  *  read the resolved token values and re-read when the color scheme flips. */
@@ -83,6 +79,8 @@ function TooltipCard({
   );
 }
 
+const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
+
 export function StatsClient({
   mode,
   tz,
@@ -96,6 +94,7 @@ export function StatsClient({
   memberCount: number;
   entries: LogRow[];
 }) {
+  const reading = mode === "reading";
   const [bucket, setBucket] = useState<Bucket>("new");
   const [scope, setScope] = useState<Scope>("mine");
   const colors = useChartColors();
@@ -103,12 +102,15 @@ export function StatsClient({
   const today = todayLocal(tz);
 
   const scoped = useMemo(
-    () => (scope === "mine" ? entries.filter((e) => e.user_id === userId) : entries),
+    () =>
+      scope === "mine" ? entries.filter((e) => e.user_id === userId) : entries,
     [entries, scope, userId],
   );
-  const bucketed = useMemo(
-    () => scoped.filter((e) => bucketOf(e.entry_type) === bucket),
-    [scoped, bucket],
+  // Readers have one category, so charts use everything in scope; memorizers
+  // filter by the New/Revision toggle.
+  const chartEntries = useMemo(
+    () => (reading ? scoped : scoped.filter((e) => bucketOf(e.entry_type) === bucket)),
+    [scoped, bucket, reading],
   );
 
   // Streak from the user's own entries.
@@ -124,50 +126,41 @@ export function StatsClient({
   const streak = currentStreak(mineDays, tz);
   const longest = longestStreak(mineDays);
 
-  // Bar: entries per day, last 14 days.
-  const barData = useMemo(() => {
+  // Heatmap: entries per day, last 5 weeks, aligned to weekday columns.
+  const heatGrid = useMemo(() => {
+    const days = lastNDays(tz, 35);
+    const count = (d: string) =>
+      chartEntries.filter((e) => localDate(e.logged_at, tz) === d).length;
+    const counts = days.map(count);
+    const max = Math.max(1, ...counts);
+    const lead = new Date(`${days[0]}T12:00:00`).getDay();
+    const cells: ({ op: number } | null)[] = [];
+    for (let i = 0; i < lead; i++) cells.push(null);
+    counts.forEach((c) => cells.push({ op: c === 0 ? 0 : 0.3 + 0.7 * (c / max) }));
+    while (cells.length % 7 !== 0) cells.push(null);
+    return cells;
+  }, [chartEntries, tz]);
+
+  // Pages read per day, last 14 days (bar chart).
+  const pagesBar = useMemo(() => {
     const days = lastNDays(tz, 14);
     return days.map((d) => ({
       label: new Date(`${d}T12:00:00`).getDate().toString(),
       full: shortDate(d),
-      count: bucketed.filter((e) => localDate(e.logged_at, tz) === d).length,
-    }));
-  }, [bucketed, tz]);
-
-  // Line: cumulative pages, last 30 days.
-  const { lineData, totalPages } = useMemo(() => {
-    const days = lastNDays(tz, 30);
-    let cum = 0;
-    const data = days.map((d) => {
-      const pages = bucketed
+      pages: +chartEntries
         .filter((e) => localDate(e.logged_at, tz) === d)
-        .reduce((s, e) => s + (e.pages_equiv ? +e.pages_equiv : 0), 0);
-      cum += pages;
-      return { full: shortDate(d), cum: +cum.toFixed(1) };
-    });
-    return { lineData: data, totalPages: +cum.toFixed(1) };
-  }, [bucketed, tz]);
+        .reduce((s, e) => s + (e.pages_equiv ? +e.pages_equiv : 0), 0)
+        .toFixed(2),
+    }));
+  }, [chartEntries, tz]);
+  const totalPages = +pagesBar.reduce((s, b) => s + b.pages, 0).toFixed(1);
 
-  // Donut: New vs Revision across the scope.
+  // Donut (hifz only): New vs Revision.
   const newCount = scoped.filter((e) => bucketOf(e.entry_type) === "new").length;
   const revCount = scoped.filter(
     (e) => bucketOf(e.entry_type) === "revision",
   ).length;
-  const pieData = [
-    { name: "New", value: newCount },
-    { name: "Revision", value: revCount },
-  ];
   const pieTotal = newCount + revCount;
-
-  // Heatmap: entries per day, last 35 days.
-  const heat = useMemo(() => {
-    const days = lastNDays(tz, 35);
-    const counts = days.map(
-      (d) => scoped.filter((e) => localDate(e.logged_at, tz) === d).length,
-    );
-    const max = Math.max(1, ...counts);
-    return counts.map((c) => (c === 0 ? 0 : 0.25 + 0.75 * (c / max)));
-  }, [scoped, tz]);
 
   const loggedTodayCount = useMemo(
     () =>
@@ -183,16 +176,7 @@ export function StatsClient({
     return scoped.filter((e) => days.has(localDate(e.logged_at, tz))).length;
   }, [scoped, tz]);
 
-  const bucketSegments =
-    mode === "hifz"
-      ? [
-          { v: "new" as Bucket, label: "New (Sabak)" },
-          { v: "revision" as Bucket, label: "Revision" },
-        ]
-      : [
-          { v: "new" as Bucket, label: "Reading" },
-          { v: "revision" as Bucket, label: "Revising" },
-        ];
+  const totalEntries = chartEntries.length;
 
   return (
     <div className="flex h-full flex-col overflow-y-auto pb-8">
@@ -201,28 +185,32 @@ export function StatsClient({
       </header>
 
       <div className="space-y-4 px-5">
-        {/* Toggles */}
-        <div className="flex rounded-xl bg-surface-2 p-1 text-subhead">
-          {bucketSegments.map((s) => (
-            <button
-              key={s.v}
-              onClick={() => setBucket(s.v)}
-              className={cn(
-                "flex-1 rounded-lg py-1.5 font-medium transition-colors",
-                bucket === s.v
-                  ? "bg-surface text-foreground shadow-e1"
-                  : "text-muted",
-              )}
-            >
-              {s.label}
-            </button>
-          ))}
-        </div>
+        {/* New/Revision toggle — hifz only */}
+        {!reading && (
+          <div className="flex rounded-xl bg-surface-2 p-1 text-subhead">
+            {[
+              { v: "new" as Bucket, label: "New (Sabak)" },
+              { v: "revision" as Bucket, label: "Revision" },
+            ].map((s) => (
+              <button
+                key={s.v}
+                onClick={() => setBucket(s.v)}
+                className={cn(
+                  "flex-1 rounded-lg py-1.5 font-medium transition-colors",
+                  bucket === s.v
+                    ? "bg-surface text-foreground shadow-e1"
+                    : "text-muted",
+                )}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="flex items-center justify-between">
           <p className="text-footnote text-faint">
-            {bucket === "new" ? "New" : "Revision"} ·{" "}
-            {scope === "mine" ? "your" : "group"} activity
+            {scope === "mine" ? "Your" : "Group"} activity
           </p>
           <div className="flex rounded-lg bg-surface-2 p-0.5 text-caption font-medium">
             {(["mine", "group"] as Scope[]).map((s) => (
@@ -231,7 +219,9 @@ export function StatsClient({
                 onClick={() => setScope(s)}
                 className={cn(
                   "rounded-md px-2.5 py-1 capitalize transition-colors",
-                  scope === s ? "bg-surface text-foreground shadow-e1" : "text-muted",
+                  scope === s
+                    ? "bg-surface text-foreground shadow-e1"
+                    : "text-muted",
                 )}
               >
                 {s}
@@ -259,47 +249,41 @@ export function StatsClient({
           )}
         </div>
 
-        {/* Entries over time */}
-        <Card title="Entries · last 14 days">
-          {bucketed.length === 0 ? (
-            <Empty>No {bucket === "new" ? "new" : "revision"} entries yet.</Empty>
+        {/* Entries heatmap */}
+        <Card title="Entries · last 5 weeks">
+          {totalEntries === 0 ? (
+            <Empty>No entries in this view yet.</Empty>
           ) : (
-            <ResponsiveContainer width="100%" height={180}>
-              <BarChart data={barData} margin={{ top: 8, right: 4, bottom: 0, left: -24 }}>
-                <CartesianGrid vertical={false} stroke={colors.grid} />
-                <XAxis
-                  dataKey="label"
-                  tick={{ fill: colors.tick, fontSize: 11 }}
-                  tickLine={false}
-                  axisLine={false}
-                  interval={1}
-                />
-                <YAxis
-                  allowDecimals={false}
-                  tick={{ fill: colors.tick, fontSize: 11 }}
-                  tickLine={false}
-                  axisLine={false}
-                  width={32}
-                />
-                <Tooltip
-                  cursor={{ fill: colors.surface2 }}
-                  content={({ active, payload }) => (
-                    <TooltipCard
-                      active={active}
-                      label={payload?.[0]?.payload?.full}
-                      value={payload?.[0]?.value as number}
-                      suffix="entries"
+            <>
+              <div className="mb-2 grid grid-cols-7 gap-1.5">
+                {WEEKDAYS.map((w, i) => (
+                  <span key={i} className="text-center text-caption text-faint">
+                    {w}
+                  </span>
+                ))}
+              </div>
+              <div className="grid grid-cols-7 gap-1.5">
+                {heatGrid.map((cell, i) =>
+                  cell === null ? (
+                    <div key={i} className="aspect-square" />
+                  ) : (
+                    <div
+                      key={i}
+                      className={cn(
+                        "aspect-square rounded-md",
+                        cell.op === 0 ? "bg-surface-2" : "bg-accent",
+                      )}
+                      style={cell.op === 0 ? undefined : { opacity: cell.op }}
                     />
-                  )}
-                />
-                <Bar dataKey="count" isAnimationActive={false} fill={colors.accent} radius={[6, 6, 0, 0]} maxBarSize={18} />
-              </BarChart>
-            </ResponsiveContainer>
+                  ),
+                )}
+              </div>
+            </>
           )}
         </Card>
 
-        {/* Cumulative pages */}
-        <Card title="Pages over time · last 30 days">
+        {/* Pages read bar */}
+        <Card title="Pages read · last 14 days">
           {totalPages === 0 ? (
             <Empty>
               No pages logged in this view. Add an amount when you log to track
@@ -309,12 +293,23 @@ export function StatsClient({
             <>
               <div className="mb-2 flex items-baseline gap-2">
                 <span className="text-title2 tabular-nums">{totalPages}</span>
-                <span className="text-footnote text-muted">pages · ≈ {Math.round(totalPages / 20)} juz</span>
+                <span className="text-footnote text-muted">
+                  pages · ≈ {Math.round(totalPages / 20)} juz
+                </span>
               </div>
-              <ResponsiveContainer width="100%" height={150}>
-                <LineChart data={lineData} margin={{ top: 4, right: 8, bottom: 0, left: -24 }}>
+              <ResponsiveContainer width="100%" height={170}>
+                <BarChart
+                  data={pagesBar}
+                  margin={{ top: 8, right: 4, bottom: 0, left: -24 }}
+                >
                   <CartesianGrid vertical={false} stroke={colors.grid} />
-                  <XAxis dataKey="full" hide />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fill: colors.tick, fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={false}
+                    interval={1}
+                  />
                   <YAxis
                     tick={{ fill: colors.tick, fontSize: 11 }}
                     tickLine={false}
@@ -322,6 +317,7 @@ export function StatsClient({
                     width={32}
                   />
                   <Tooltip
+                    cursor={{ fill: colors.surface2 }}
                     content={({ active, payload }) => (
                       <TooltipCard
                         active={active}
@@ -331,62 +327,59 @@ export function StatsClient({
                       />
                     )}
                   />
-                  <Line
-                    type="monotone"
-                    dataKey="cum"
+                  <Bar
+                    dataKey="pages"
                     isAnimationActive={false}
-                    stroke={colors.accent}
-                    strokeWidth={2.5}
-                    dot={false}
+                    fill={colors.accent}
+                    radius={[6, 6, 0, 0]}
+                    maxBarSize={18}
                   />
-                </LineChart>
+                </BarChart>
               </ResponsiveContainer>
             </>
           )}
         </Card>
 
-        {/* By type donut */}
-        <Card title="New vs Revision">
-          {pieTotal === 0 ? (
-            <Empty>Nothing logged yet.</Empty>
-          ) : (
-            <div className="flex items-center gap-5">
-              <ResponsiveContainer width={120} height={120}>
-                <PieChart>
-                  <Pie
-                    data={pieData}
-                    isAnimationActive={false}
-                    dataKey="value"
-                    innerRadius={34}
-                    outerRadius={56}
-                    paddingAngle={2}
-                    stroke="none"
-                  >
-                    <Cell fill={colors.accent} />
-                    <Cell fill={colors.accent} fillOpacity={0.32} />
-                  </Pie>
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="space-y-2 text-footnote">
-                <Legend color="var(--accent)" label="New" value={newCount} total={pieTotal} />
-                <Legend color={REVISION_COLOR} label="Revision" value={revCount} total={pieTotal} />
+        {/* New vs Revision donut — hifz only */}
+        {!reading && (
+          <Card title="New vs Revision">
+            {pieTotal === 0 ? (
+              <Empty>Nothing logged yet.</Empty>
+            ) : (
+              <div className="flex items-center gap-5">
+                <ResponsiveContainer width={120} height={120}>
+                  <PieChart>
+                    <Pie
+                      data={[
+                        { name: "New", value: newCount },
+                        { name: "Revision", value: revCount },
+                      ]}
+                      dataKey="value"
+                      isAnimationActive={false}
+                      innerRadius={34}
+                      outerRadius={56}
+                      paddingAngle={2}
+                      stroke="none"
+                    >
+                      <Cell fill={colors.accent} />
+                      <Cell fill={colors.accent} fillOpacity={0.32} />
+                    </Pie>
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="space-y-2 text-footnote">
+                  <Legend color={colors.accent} label="New" value={newCount} total={pieTotal} />
+                  <Legend
+                    color={colors.accent}
+                    faded
+                    label="Revision"
+                    value={revCount}
+                    total={pieTotal}
+                  />
+                </div>
               </div>
-            </div>
-          )}
-        </Card>
-
-        {/* Heatmap */}
-        <Card title="Consistency · last 5 weeks">
-          <div className="grid grid-cols-7 gap-1.5">
-            {heat.map((op, i) => (
-              <div
-                key={i}
-                className={cn("h-6 rounded-md", op === 0 ? "bg-surface-2" : "bg-accent")}
-                style={op === 0 ? undefined : { opacity: op }}
-              />
-            ))}
-          </div>
-        </Card>
+            )}
+          </Card>
+        )}
       </div>
     </div>
   );
@@ -436,11 +429,13 @@ function Empty({ children }: { children: React.ReactNode }) {
 
 function Legend({
   color,
+  faded,
   label,
   value,
   total,
 }: {
   color: string;
+  faded?: boolean;
   label: string;
   value: number;
   total: number;
@@ -450,7 +445,7 @@ function Legend({
     <div className="flex items-center gap-2">
       <span
         className="size-2.5 rounded-full"
-        style={{ background: color }}
+        style={{ background: color, opacity: faded ? 0.32 : 1 }}
       />
       <span className="text-muted">{label}</span>
       <span className="ml-auto tabular-nums text-faint">{pct}%</span>

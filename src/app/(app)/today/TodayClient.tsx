@@ -192,8 +192,8 @@ export function TodayClient({
         </div>
       )}
 
-      {/* Filter */}
-      {todayEntries.length > 0 && (
+      {/* Filter (hifz only — readers have a single category) */}
+      {mode !== "reading" && todayEntries.length > 0 && (
         <div className="px-5 pt-5">
           <div className="flex rounded-xl bg-surface-2 p-1 text-subhead">
             {segments.map((s) => (
