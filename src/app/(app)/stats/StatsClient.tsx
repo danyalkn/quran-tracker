@@ -14,7 +14,7 @@ import {
   Tooltip,
 } from "recharts";
 import { TrendingUp } from "lucide-react";
-import { bucketOf, type Bucket, type Mode } from "@/lib/entries";
+import { type Mode } from "@/lib/entries";
 import type { LogRow } from "@/lib/types";
 import {
   localDate,
@@ -28,6 +28,7 @@ import {
 import { cn } from "@/lib/cn";
 
 type Scope = "mine" | "group";
+type Filter = "all" | "sabak" | "revision";
 
 /** Recharts paints via SVG attributes, which don't resolve CSS variables — so
  *  read the resolved token values and re-read when the color scheme flips. */
@@ -96,7 +97,7 @@ export function StatsClient({
   entries: LogRow[];
 }) {
   const reading = mode === "reading";
-  const [bucket, setBucket] = useState<Bucket>("new");
+  const [filter, setFilter] = useState<Filter>("all");
   const [scope, setScope] = useState<Scope>("mine");
   const colors = useChartColors();
 
@@ -107,12 +108,16 @@ export function StatsClient({
       scope === "mine" ? entries.filter((e) => e.user_id === userId) : entries,
     [entries, scope, userId],
   );
-  // Readers have one category, so charts use everything in scope; memorizers
-  // filter by the New/Revision toggle.
-  const chartEntries = useMemo(
-    () => (reading ? scoped : scoped.filter((e) => bucketOf(e.entry_type) === bucket)),
-    [scoped, bucket, reading],
-  );
+  // Readers have one category. Memorizers filter by All / Sabak / Revision —
+  // reading entries only appear under All (never counted as "new memorization").
+  const chartEntries = useMemo(() => {
+    if (reading || filter === "all") return scoped;
+    if (filter === "sabak")
+      return scoped.filter((e) => e.entry_type === "sabak");
+    return scoped.filter(
+      (e) => e.entry_type === "sabak_para" || e.entry_type === "dor",
+    );
+  }, [scoped, filter, reading]);
 
   // Streak from the user's own entries.
   const mineDays = useMemo(
@@ -161,12 +166,12 @@ export function StatsClient({
   }, [chartEntries, tz]);
   const totalPages = +pagesBar.reduce((s, b) => s + b.pages, 0).toFixed(1);
 
-  // Donut (hifz only): New vs Revision.
-  const newCount = scoped.filter((e) => bucketOf(e.entry_type) === "new").length;
+  // Donut (hifz only): Sabak vs Revision (memorization only — excludes reading).
+  const sabakCount = scoped.filter((e) => e.entry_type === "sabak").length;
   const revCount = scoped.filter(
-    (e) => bucketOf(e.entry_type) === "revision",
+    (e) => e.entry_type === "sabak_para" || e.entry_type === "dor",
   ).length;
-  const pieTotal = newCount + revCount;
+  const pieTotal = sabakCount + revCount;
 
   const loggedTodayCount = useMemo(
     () =>
@@ -191,19 +196,22 @@ export function StatsClient({
       </header>
 
       <div className="space-y-4 px-5">
-        {/* New/Revision toggle — hifz only */}
+        {/* All / Sabak / Revision toggle — hifz only */}
         {!reading && (
           <div className="flex rounded-xl bg-surface-2 p-1 text-subhead">
-            {[
-              { v: "new" as Bucket, label: "New (Sabak)" },
-              { v: "revision" as Bucket, label: "Revision" },
-            ].map((s) => (
+            {(
+              [
+                { v: "all", label: "All" },
+                { v: "sabak", label: "Sabak" },
+                { v: "revision", label: "Revision" },
+              ] as { v: Filter; label: string }[]
+            ).map((s) => (
               <button
                 key={s.v}
-                onClick={() => setBucket(s.v)}
+                onClick={() => setFilter(s.v)}
                 className={cn(
                   "flex-1 rounded-lg py-1.5 font-medium transition-colors",
-                  bucket === s.v
+                  filter === s.v
                     ? "bg-surface text-foreground shadow-e1"
                     : "text-muted",
                 )}
@@ -368,16 +376,16 @@ export function StatsClient({
 
         {/* New vs Revision donut — hifz only */}
         {!reading && (
-          <Card title="New vs Revision">
+          <Card title="Sabak vs Revision">
             {pieTotal === 0 ? (
-              <Empty>Nothing logged yet.</Empty>
+              <Empty>No memorization logged yet.</Empty>
             ) : (
               <div className="flex items-center gap-5">
                 <ResponsiveContainer width={120} height={120}>
                   <PieChart>
                     <Pie
                       data={[
-                        { name: "New", value: newCount },
+                        { name: "Sabak", value: sabakCount },
                         { name: "Revision", value: revCount },
                       ]}
                       dataKey="value"
@@ -393,7 +401,12 @@ export function StatsClient({
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="space-y-2 text-footnote">
-                  <Legend color={colors.accent} label="New" value={newCount} total={pieTotal} />
+                  <Legend
+                    color={colors.accent}
+                    label="Sabak"
+                    value={sabakCount}
+                    total={pieTotal}
+                  />
                   <Legend
                     color={colors.accent}
                     faded
