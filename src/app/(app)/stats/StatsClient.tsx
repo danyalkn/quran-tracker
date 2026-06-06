@@ -23,6 +23,7 @@ import {
   longestStreak,
   lastNDays,
   shortDate,
+  dayLabel,
 } from "@/lib/dates";
 import { cn } from "@/lib/cn";
 
@@ -134,12 +135,17 @@ export function StatsClient({
     const counts = days.map(count);
     const max = Math.max(1, ...counts);
     const lead = new Date(`${days[0]}T12:00:00`).getDay();
-    const cells: ({ op: number } | null)[] = [];
+    type Cell = { date: string; count: number; op: number } | null;
+    const cells: Cell[] = [];
     for (let i = 0; i < lead; i++) cells.push(null);
-    counts.forEach((c) => cells.push({ op: c === 0 ? 0 : 0.3 + 0.7 * (c / max) }));
+    days.forEach((d, i) => {
+      const c = counts[i];
+      cells.push({ date: d, count: c, op: c === 0 ? 0 : 0.3 + 0.7 * (c / max) });
+    });
     while (cells.length % 7 !== 0) cells.push(null);
     return cells;
   }, [chartEntries, tz]);
+  const [activeCell, setActiveCell] = useState<number | null>(null);
 
   // Pages read per day, last 14 days (bar chart).
   const pagesBar = useMemo(() => {
@@ -267,14 +273,34 @@ export function StatsClient({
                   cell === null ? (
                     <div key={i} className="aspect-square" />
                   ) : (
-                    <div
+                    <button
                       key={i}
-                      className={cn(
-                        "aspect-square rounded-md",
-                        cell.op === 0 ? "bg-surface-2" : "bg-accent",
-                      )}
-                      style={cell.op === 0 ? undefined : { opacity: cell.op }}
-                    />
+                      type="button"
+                      onClick={() =>
+                        setActiveCell((v) => (v === i ? null : i))
+                      }
+                      className="group relative aspect-square"
+                    >
+                      <span
+                        className={cn(
+                          "block size-full rounded-md",
+                          cell.op === 0 ? "bg-surface-2" : "bg-accent",
+                        )}
+                        style={cell.op === 0 ? undefined : { opacity: cell.op }}
+                      />
+                      <span
+                        className={cn(
+                          "pointer-events-none absolute bottom-full left-1/2 z-30 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-lg border border-border bg-surface px-2.5 py-1.5 text-caption shadow-e2 opacity-0 transition-opacity group-hover:opacity-100",
+                          activeCell === i && "opacity-100",
+                        )}
+                      >
+                        <span className="font-semibold tabular-nums">
+                          {cell.count}
+                        </span>{" "}
+                        {cell.count === 1 ? "entry" : "entries"}
+                        <span className="text-faint"> · {dayLabel(cell.date)}</span>
+                      </span>
+                    </button>
                   ),
                 )}
               </div>
