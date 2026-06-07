@@ -43,7 +43,7 @@ export function SpeedDial({
     <>
       {open && (
         <div
-          className="absolute inset-0 z-40 bg-black/30"
+          className="absolute inset-0 z-40 bg-black/30 animate-[fadeIn_140ms_ease-out]"
           onClick={() => setOpen(false)}
         />
       )}
@@ -56,8 +56,8 @@ export function SpeedDial({
               <button
                 key={t}
                 onClick={() => choose(t)}
-                style={{ animationDelay: `${i * 35}ms` }}
-                className="flex items-center gap-3.5 rounded-full bg-surface py-3.5 pl-7 pr-3.5 shadow-e2 animate-[dialIn_220ms_var(--ease-spring)_both]"
+                style={{ animationDelay: `${i * 22}ms` }}
+                className="flex items-center gap-3.5 rounded-full bg-surface py-3.5 pl-7 pr-3.5 shadow-e2 [will-change:transform,opacity] animate-[dialIn_170ms_var(--ease-spring)_both]"
               >
                 <span className="text-[1.0625rem] font-semibold">
                   {ENTRY_META[t].label}

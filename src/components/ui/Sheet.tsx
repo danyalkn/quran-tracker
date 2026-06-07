@@ -63,7 +63,7 @@ export function Sheet({
         aria-labelledby={labelledBy}
         className={cn(
           "absolute inset-x-0 bottom-0 mx-auto max-w-md rounded-t-[28px] bg-canvas shadow-e3",
-          "transition-transform duration-300 ease-spring",
+          "transition-transform duration-300 ease-spring [will-change:transform]",
           "max-h-[92dvh] overflow-y-auto",
           "pb-[max(1.75rem,env(safe-area-inset-bottom))]",
           shown ? "translate-y-0" : "translate-y-full",

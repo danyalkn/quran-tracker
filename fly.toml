@@ -16,7 +16,10 @@ primary_region = 'yyz'
 [http_service]
   internal_port = 3000
   force_https = true
-  auto_stop_machines = 'stop'
+  # 'suspend' freezes a memory snapshot when idle instead of a full shutdown,
+  # so the next request resumes in well under a second rather than cold-booting
+  # the VM + Node server (the old multi-second "first open" lag).
+  auto_stop_machines = 'suspend'
   auto_start_machines = true
   min_machines_running = 0
   processes = ['app']
