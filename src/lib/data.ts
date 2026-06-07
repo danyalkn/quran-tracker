@@ -49,23 +49,44 @@ export async function getMyRecentEntries(
   return (data as LogRow[] | null) ?? [];
 }
 
-/** Everyone in the group, with their profile name/avatar (for chat + feed). */
+/** Everyone in the group, with their profile name/avatar (for chat + feed).
+ *  Two queries on purpose: there is no direct FK group_members.user_id →
+ *  profiles.id (both reference auth.users), so a PostgREST embed can't resolve
+ *  it. We fetch the member ids, then their profiles. */
 export async function getGroupMembers(
   groupId: string,
 ): Promise<GroupMember[]> {
   const supabase = await createClient();
-  const { data } = await supabase
-    .from("group_members")
-    .select("user_id, profiles(display_name, avatar_url)")
-    .eq("group_id", groupId);
 
-  return ((data as unknown as Array<{
-    user_id: string;
-    profiles: { display_name: string | null; avatar_url: string | null } | null;
-  }> | null) ?? []).map((row) => ({
-    user_id: row.user_id,
-    display_name: row.profiles?.display_name ?? "Member",
-    avatar_url: row.profiles?.avatar_url ?? null,
+  const { data: rows } = await supabase
+    .from("group_members")
+    .select("user_id")
+    .eq("group_id", groupId);
+  const ids = ((rows as { user_id: string }[] | null) ?? []).map(
+    (r) => r.user_id,
+  );
+  if (ids.length === 0) return [];
+
+  const { data: profiles } = await supabase
+    .from("profiles")
+    .select("id, display_name, avatar_url")
+    .in("id", ids);
+  const byId = new Map(
+    (
+      (profiles as
+        | {
+            id: string;
+            display_name: string | null;
+            avatar_url: string | null;
+          }[]
+        | null) ?? []
+    ).map((p) => [p.id, p]),
+  );
+
+  return ids.map((id) => ({
+    user_id: id,
+    display_name: byId.get(id)?.display_name ?? "Member",
+    avatar_url: byId.get(id)?.avatar_url ?? null,
   }));
 }
 
