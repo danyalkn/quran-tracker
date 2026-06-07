@@ -8,6 +8,7 @@ import { timeLabel } from "@/lib/dates";
 import { cn } from "@/lib/cn";
 import { Avatar } from "@/components/ui/Avatar";
 import { Sheet } from "@/components/ui/Sheet";
+import { useSwipeDownDismiss } from "@/lib/useSwipeDownDismiss";
 
 function escapeRe(s: string) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -79,6 +80,9 @@ export function ChatClient({
 
   const [showMembers, setShowMembers] = useState(false);
   const [notifyChat, setNotifyChat] = useState(initialNotifyChat);
+
+  // Swipe down on the composer to dismiss the keyboard.
+  const swipeDown = useSwipeDownDismiss();
 
   const toggleNotifyChat = async () => {
     const next = !notifyChat;
@@ -393,7 +397,10 @@ export function ChatClient({
       </div>
 
       {/* Composer */}
-      <div className="relative border-t border-border bg-surface px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      <div
+        {...swipeDown}
+        className="relative border-t border-border bg-surface px-3 py-2.5"
+      >
         {/* Mention typeahead */}
         {mentionQuery && suggestions.length > 0 && (
           <div className="absolute bottom-full left-3 right-3 mb-2 overflow-hidden rounded-xl border border-border bg-surface shadow-e3">

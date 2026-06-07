@@ -9,6 +9,7 @@ import {
   MessageCircle,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { useSwipeDownDismiss } from "@/lib/useSwipeDownDismiss";
 
 const TABS = [
   { href: "/today", label: "Today", icon: CalendarCheck },
@@ -19,8 +20,12 @@ const TABS = [
 
 export function TabBar() {
   const pathname = usePathname();
+  const swipeDown = useSwipeDownDismiss();
   return (
-    <nav className="flex items-center justify-around border-t border-border bg-surface px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2">
+    <nav
+      {...swipeDown}
+      className="flex items-center justify-around border-t border-border bg-surface px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2"
+    >
       {TABS.map(({ href, label, icon: Icon }) => {
         const active = pathname === href || pathname.startsWith(href + "/");
         return (
