@@ -55,6 +55,7 @@ export function ChatClient({
   userId,
   members,
   initialMessages,
+  initialNotifyChat,
 }: {
   groupId: string;
   groupName: string;
@@ -62,6 +63,7 @@ export function ChatClient({
   userId: string;
   members: GroupMember[];
   initialMessages: Message[];
+  initialNotifyChat: boolean;
 }) {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [draft, setDraft] = useState("");
@@ -76,6 +78,18 @@ export function ChatClient({
   const caretToSet = useRef<number | null>(null);
 
   const [showMembers, setShowMembers] = useState(false);
+  const [notifyChat, setNotifyChat] = useState(initialNotifyChat);
+
+  const toggleNotifyChat = async () => {
+    const next = !notifyChat;
+    setNotifyChat(next);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("profiles")
+      .update({ notify_chat: next })
+      .eq("id", userId);
+    if (error) setNotifyChat(!next); // revert on failure
+  };
 
   const memberMap = useMemo(
     () => new Map(members.map((m) => [m.user_id, m])),
@@ -259,6 +273,37 @@ export function ChatClient({
           </h2>
           <p className="mb-4 mt-0.5 text-footnote text-muted">
             {members.length} {members.length === 1 ? "member" : "members"}
+          </p>
+
+          {/* Personal notification preference */}
+          <div className="mb-4 flex items-center gap-3 rounded-2xl bg-surface p-3.5 shadow-e1">
+            <div className="min-w-0 flex-1">
+              <p className="text-callout font-semibold">Message notifications</p>
+              <p className="text-footnote text-muted">
+                {notifyChat
+                  ? "On — you're notified for new messages."
+                  : "Off — only @mentions notify you."}
+              </p>
+            </div>
+            <button
+              onClick={toggleNotifyChat}
+              aria-pressed={notifyChat}
+              className={cn(
+                "relative h-7 w-12 shrink-0 rounded-full transition-colors",
+                notifyChat ? "bg-accent" : "bg-border",
+              )}
+            >
+              <span
+                className={cn(
+                  "absolute top-0.5 size-6 rounded-full bg-white shadow transition-all",
+                  notifyChat ? "left-[1.375rem]" : "left-0.5",
+                )}
+              />
+            </button>
+          </div>
+
+          <p className="mb-2 px-1 text-footnote font-medium uppercase tracking-wider text-faint">
+            Members
           </p>
           <div className="space-y-2">
             {members.map((m) => (

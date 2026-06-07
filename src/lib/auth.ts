@@ -10,6 +10,7 @@ export type Profile = {
   timezone: string;
   reminder_time: string | null;
   mode: Mode;
+  notify_chat: boolean | null;
   created_at: string;
 };
 

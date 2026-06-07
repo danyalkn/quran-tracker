@@ -38,6 +38,7 @@ export default async function ChatPage() {
       userId={user.id}
       members={members}
       initialMessages={messages}
+      initialNotifyChat={profile.notify_chat ?? true}
     />
   );
 }
