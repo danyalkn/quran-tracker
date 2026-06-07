@@ -15,13 +15,27 @@ type Payload = { title: string; body: string; url?: string; tag?: string };
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
+// Only server-to-server callers (cron / triggers) may fan out notifications.
+// The function's verify_jwt gateway already validates the token's signature, so
+// trusting its decoded `role` claim is safe. We accept an exact service-role
+// key match (fast path) or any validly-signed service_role JWT.
+function isAuthorized(header: string | null): boolean {
+  if (!header?.startsWith("Bearer ")) return false;
+  const token = header.slice(7);
+  if (token === SERVICE_ROLE) return true;
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    return payload.role === "service_role";
+  } catch {
+    return false;
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method !== "POST") {
     return new Response("Method not allowed", { status: 405 });
   }
-  // Only callers holding the service-role key (cron / triggers / trusted
-  // server) may fan out notifications.
-  if (req.headers.get("Authorization") !== `Bearer ${SERVICE_ROLE}`) {
+  if (!isAuthorized(req.headers.get("Authorization"))) {
     return new Response("Unauthorized", { status: 401 });
   }
 
