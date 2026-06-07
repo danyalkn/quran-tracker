@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Send } from "lucide-react";
+import { Send, Users } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import type { GroupMember, Message } from "@/lib/types";
 import { timeLabel } from "@/lib/dates";
 import { cn } from "@/lib/cn";
 import { Avatar } from "@/components/ui/Avatar";
+import { Sheet } from "@/components/ui/Sheet";
 
 function escapeRe(s: string) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -73,6 +74,8 @@ export function ChatClient({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const caretToSet = useRef<number | null>(null);
+
+  const [showMembers, setShowMembers] = useState(false);
 
   const memberMap = useMemo(
     () => new Map(members.map((m) => [m.user_id, m])),
@@ -227,13 +230,54 @@ export function ChatClient({
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center gap-3 border-b border-border px-4 pb-3 pt-7">
-        <div className="flex-1">
-          <h1 className="text-title3">{groupName}</h1>
+        <button
+          onClick={() => setShowMembers(true)}
+          className="min-w-0 flex-1 text-left"
+        >
+          <h1 className="truncate text-title3">{groupName}</h1>
           <p className="text-caption text-faint">
             {members.length} {members.length === 1 ? "member" : "members"}
           </p>
-        </div>
+        </button>
+        <button
+          onClick={() => setShowMembers(true)}
+          aria-label="Group members"
+          className="grid size-9 shrink-0 place-items-center rounded-full bg-surface-2 text-muted"
+        >
+          <Users className="size-5" />
+        </button>
       </header>
+
+      <Sheet
+        open={showMembers}
+        onClose={() => setShowMembers(false)}
+        labelledBy="members-title"
+      >
+        <div className="px-5 pt-2">
+          <h2 id="members-title" className="text-title2">
+            {groupName}
+          </h2>
+          <p className="mb-4 mt-0.5 text-footnote text-muted">
+            {members.length} {members.length === 1 ? "member" : "members"}
+          </p>
+          <div className="space-y-2">
+            {members.map((m) => (
+              <div
+                key={m.user_id}
+                className="flex items-center gap-3 rounded-2xl bg-surface p-3 shadow-e1"
+              >
+                <Avatar name={m.display_name} src={m.avatar_url} size={40} />
+                <span className="truncate text-callout font-medium">
+                  {m.display_name}
+                  {m.user_id === userId && (
+                    <span className="text-faint"> (You)</span>
+                  )}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </Sheet>
 
       {/* Messages */}
       <div className="flex flex-1 flex-col gap-2.5 overflow-y-auto px-4 py-4">
