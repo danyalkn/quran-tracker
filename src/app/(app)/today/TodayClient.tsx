@@ -6,10 +6,12 @@ import { Inbox, UserPlus, Bookmark } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import {
   bucketOf,
+  isReadingType,
   pagesEquiv,
   type EntryType,
   type Mode,
 } from "@/lib/entries";
+import { bookmarkLabel, pageFromRef } from "@/lib/mushaf";
 import type { LogRow, NewEntry } from "@/lib/types";
 import { localDate, todayLocal, currentStreak, longestStreak } from "@/lib/dates";
 import { cn } from "@/lib/cn";
@@ -63,10 +65,10 @@ export function TodayClient({
   );
 
   // Most recent reading bookmark, to resume from.
-  const lastStopped = entries.find(
-    (e) =>
-      (e.entry_type === "reading" || e.entry_type === "revising") && e.to_ref,
-  )?.to_ref;
+  const lastPage = (() => {
+    const e = entries.find((x) => isReadingType(x.entry_type) && x.to_ref);
+    return e ? pageFromRef(e.to_ref) : null;
+  })();
 
   const dateLabel = new Date().toLocaleDateString("en-GB", {
     timeZone: tz,
@@ -181,12 +183,12 @@ export function TodayClient({
       </div>
 
       {/* Resume-from bookmark */}
-      {lastStopped && (
+      {lastPage != null && (
         <div className="px-5 pt-3">
           <div className="flex items-center gap-2 rounded-xl bg-accent-tint px-3.5 py-2.5 text-accent">
             <Bookmark className="size-4 shrink-0" />
             <span className="text-footnote font-medium">
-              Last stopped at {lastStopped}
+              Last read: {bookmarkLabel(lastPage)} · p.{lastPage}
             </span>
           </div>
         </div>

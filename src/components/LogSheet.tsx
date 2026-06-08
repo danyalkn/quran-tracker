@@ -13,6 +13,7 @@ import { Sheet } from "@/components/ui/Sheet";
 import { Button } from "@/components/ui/Button";
 import { Input, Textarea, FieldLabel } from "@/components/ui/Field";
 import { WheelPicker } from "@/components/WheelPicker";
+import { TOTAL_PAGES, locatePage } from "@/lib/mushaf";
 
 type Portion = "Full" | "Half" | "Quarter" | "Pages";
 const PORTIONS: Portion[] = ["Full", "Half", "Quarter", "Pages"];
@@ -82,6 +83,12 @@ export function LogSheet({
   const partOptions =
     portion === "Half" ? [1, 2] : portion === "Quarter" ? [1, 2, 3, 4] : [];
 
+  // Reading: resolve the entered last-page into its mushaf location, live.
+  const stoppedNum = Number(stoppedAt);
+  const stoppedValid =
+    /^\d+$/.test(stoppedAt) && stoppedNum >= 1 && stoppedNum <= TOTAL_PAGES;
+  const readLoc = stoppedValid ? locatePage(stoppedNum) : null;
+
   // Numbers only — up to 2 decimal places for pages, integer for the page no.
   const onPagesReadChange = (v: string) => {
     if (/^\d*\.?\d{0,2}$/.test(v)) setPagesRead(v);
@@ -107,13 +114,17 @@ export function LogSheet({
         setError("Enter how many pages you read.");
         return;
       }
+      if (!readLoc) {
+        setError(`Enter the last page you read (1–${TOTAL_PAGES}).`);
+        return;
+      }
       onSave({
         entry_type: initialType,
         from_ref: null,
-        to_ref: stoppedAt.trim() ? `Page ${stoppedAt.trim()}` : null,
+        to_ref: String(readLoc.page), // store the raw page; juz/surah derived
         amount: amt,
         unit: "page",
-        juz: null,
+        juz: readLoc.juz,
         part: null,
         notes: notes.trim() || null,
       });
@@ -181,15 +192,30 @@ export function LogSheet({
               </div>
             </div>
             <div className="flex w-full flex-col items-center gap-2">
-              <FieldLabel className="!mb-0">Stopped at page (optional)</FieldLabel>
+              <FieldLabel className="!mb-0">Last page you read</FieldLabel>
               <div className="w-44">
                 <Input
                   inputMode="numeric"
-                  placeholder="e.g. 152"
+                  placeholder="1–604"
                   value={stoppedAt}
                   onChange={(e) => onStoppedChange(e.target.value)}
                   className="text-center"
                 />
+              </div>
+              {/* Live bookmark from the page they stopped on. */}
+              <div className="flex h-9 items-center">
+                {readLoc ? (
+                  <span className="inline-flex items-center gap-2 rounded-full bg-accent-tint px-3.5 py-1.5 text-footnote font-medium text-accent">
+                    Juz {readLoc.juz} · {readLoc.surah.name}
+                    <span dir="rtl" className="text-faint">
+                      {readLoc.surah.arabic}
+                    </span>
+                  </span>
+                ) : stoppedAt ? (
+                  <span className="text-footnote text-faint">
+                    Enter a page from 1 to {TOTAL_PAGES}
+                  </span>
+                ) : null}
               </div>
             </div>
           </div>

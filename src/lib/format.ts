@@ -1,8 +1,15 @@
-import { ENTRY_META, UNIT_META } from "@/lib/entries";
+import { ENTRY_META, UNIT_META, isReadingType } from "@/lib/entries";
+import { bookmarkLabel, pageFromRef } from "@/lib/mushaf";
 import type { LogRow } from "@/lib/types";
 
 /** Primary label for an entry (what was covered). */
 export function describeEntry(e: LogRow): string {
+  // Reading/revising: a bookmark derived from the last page read.
+  if (isReadingType(e.entry_type)) {
+    const page = pageFromRef(e.to_ref);
+    if (page != null) return bookmarkLabel(page); // "Juz 7 · An-Nahl"
+    return ENTRY_META[e.entry_type].label;
+  }
   // Structured hifz entry (juz + portion).
   if (e.juz != null) {
     const base = `Juz ${e.juz}`;
@@ -16,6 +23,17 @@ export function describeEntry(e: LogRow): string {
 
 /** Secondary quantity label (null when the portion already says it). */
 export function quantityLabel(e: LogRow): string | null {
+  // Reading: pages read + where they stopped ("12 pages · p.262").
+  if (isReadingType(e.entry_type)) {
+    const parts: string[] = [];
+    if (e.amount != null) {
+      const n = +e.amount;
+      parts.push(`${n} ${n === 1 ? "page" : "pages"}`);
+    }
+    const page = pageFromRef(e.to_ref);
+    if (page != null) parts.push(`p.${page}`);
+    return parts.length ? parts.join(" · ") : null;
+  }
   // Structured hifz: only show a quantity when it's a page amount (sabak or a
   // "Pages" revision). Full/Half/Quarter already read in describeEntry.
   if (e.juz != null) {
