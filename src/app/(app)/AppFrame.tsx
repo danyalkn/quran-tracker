@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { TabBar } from "@/components/ui/TabBar";
 
 /**
@@ -20,6 +20,9 @@ import { TabBar } from "@/components/ui/TabBar";
  */
 export function AppFrame({ children }: { children: React.ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
+  // True only when a soft keyboard is up (visual viewport much shorter than the
+  // layout viewport). Stays false on laptops — no on-screen keyboard, no gap.
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
 
   useEffect(() => {
     const vv = window.visualViewport;
@@ -36,6 +39,7 @@ export function AppFrame({ children }: { children: React.ReactNode }) {
         el.style.transform = vv.offsetTop
           ? `translateY(${vv.offsetTop}px)`
           : "none";
+        setKeyboardOpen(window.innerHeight - vv.height > 150);
       });
     };
 
@@ -55,7 +59,9 @@ export function AppFrame({ children }: { children: React.ReactNode }) {
       className="fixed inset-x-0 top-0 mx-auto flex h-dvh w-full max-w-md flex-col pt-[env(safe-area-inset-top)]"
     >
       <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
-      <TabBar />
+      {/* Hide the tab bar while typing so the chat isn't cramped above the
+          keyboard. Only happens on devices with a soft keyboard. */}
+      {!keyboardOpen && <TabBar />}
     </div>
   );
 }

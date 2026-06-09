@@ -8,12 +8,12 @@ import {
   type EntryType,
   type Unit,
 } from "@/lib/entries";
-import type { NewEntry } from "@/lib/types";
+import type { LogRow, NewEntry } from "@/lib/types";
 import { Sheet } from "@/components/ui/Sheet";
 import { Button } from "@/components/ui/Button";
 import { Input, Textarea, FieldLabel } from "@/components/ui/Field";
 import { WheelPicker } from "@/components/WheelPicker";
-import { TOTAL_PAGES, locatePage } from "@/lib/mushaf";
+import { TOTAL_PAGES, locatePage, pageFromRef } from "@/lib/mushaf";
 
 type Portion = "Full" | "Half" | "Quarter" | "Pages";
 const PORTIONS: Portion[] = ["Full", "Half", "Quarter", "Pages"];
@@ -36,6 +36,14 @@ function defaultPortion(t: EntryType): Portion {
   return t === "dor" ? "Full" : "Quarter";
 }
 
+/** Reconstruct the portion wheel from a saved revision entry's unit. */
+function portionFromUnit(unit: Unit | null): Portion {
+  if (unit === "juz") return "Full";
+  if (unit === "hizb") return "Half";
+  if (unit === "quarter") return "Quarter";
+  return "Pages";
+}
+
 const plural = (n: number, w: string) => `${n} ${n === 1 ? w : w + "s"}`;
 
 export function LogSheet({
@@ -43,11 +51,14 @@ export function LogSheet({
   onClose,
   initialType,
   onSave,
+  editing,
 }: {
   open: boolean;
   onClose: () => void;
   initialType: EntryType;
   onSave: (entry: NewEntry) => void;
+  /** When set, the sheet edits this entry instead of creating a new one. */
+  editing?: LogRow | null;
 }) {
   const reading = isReadingType(initialType);
   const sabak = initialType === "sabak";
@@ -69,16 +80,36 @@ export function LogSheet({
 
   useEffect(() => {
     if (!open) return;
+    setError(null);
+    setNotes(editing?.notes ?? "");
+    setShowNotes(Boolean(editing?.notes));
+
+    if (editing) {
+      // Prefill from the entry being edited.
+      if (isReadingType(editing.entry_type)) {
+        setPagesRead(editing.amount != null ? String(editing.amount) : "");
+        const p = pageFromRef(editing.to_ref);
+        setStoppedAt(p != null ? String(p) : "");
+      } else if (editing.entry_type === "sabak") {
+        setJuz(editing.juz ?? 1);
+        setPages(editing.amount ?? 1);
+      } else {
+        setJuz(editing.juz ?? 1);
+        setPortion(portionFromUnit(editing.unit));
+        setPart(editing.part ?? 1);
+        setPages(editing.amount ?? 1);
+      }
+      return;
+    }
+
+    // Fresh entry defaults.
     setJuz(1);
     setPortion(defaultPortion(initialType));
     setPart(1);
     setPages(1);
     setPagesRead("");
     setStoppedAt("");
-    setNotes("");
-    setShowNotes(false);
-    setError(null);
-  }, [open, initialType]);
+  }, [open, initialType, editing]);
 
   const partOptions =
     portion === "Half" ? [1, 2] : portion === "Quarter" ? [1, 2, 3, 4] : [];
@@ -161,7 +192,7 @@ export function LogSheet({
       <div className="px-5 pt-2">
         <div className="mb-1 flex items-center justify-between">
           <h2 id="log-sheet-title" className="text-title2">
-            Log {meta.label}
+            {editing ? "Edit" : "Log"} {meta.label}
           </h2>
           <button
             onClick={onClose}
@@ -321,7 +352,7 @@ export function LogSheet({
         {error && <p className="mt-3 text-footnote text-danger">{error}</p>}
 
         <Button fullWidth className="mt-6" onClick={save}>
-          Save entry
+          {editing ? "Save changes" : "Save entry"}
         </Button>
       </div>
     </Sheet>

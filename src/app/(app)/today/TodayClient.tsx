@@ -11,7 +11,7 @@ import {
   type EntryType,
   type Mode,
 } from "@/lib/entries";
-import { bookmarkLabel, pageFromRef } from "@/lib/mushaf";
+import { bookmarkLabel, pageFromRef, TOTAL_PAGES } from "@/lib/mushaf";
 import type { LogRow, NewEntry } from "@/lib/types";
 import { localDate, todayLocal, currentStreak, longestStreak } from "@/lib/dates";
 import { cn } from "@/lib/cn";
@@ -45,6 +45,7 @@ export function TodayClient({
   const [sheetType, setSheetType] = useState<EntryType>(
     mode === "hifz" ? "sabak" : "reading",
   );
+  const [editingEntry, setEditingEntry] = useState<LogRow | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const today = todayLocal(tz);
@@ -64,11 +65,15 @@ export function TodayClient({
     filter === "all" ? true : bucketOf(e.entry_type) === filter,
   );
 
-  // Most recent reading bookmark, to resume from.
+  // Most recent reading bookmark → where to start next. We store the last page
+  // read but show the *next* page to pick up from (wrapping to 1 after a khatm).
   const lastPage = (() => {
     const e = entries.find((x) => isReadingType(x.entry_type) && x.to_ref);
     return e ? pageFromRef(e.to_ref) : null;
   })();
+  const finished = lastPage != null && lastPage >= TOTAL_PAGES;
+  const startPage =
+    lastPage == null ? null : finished ? 1 : lastPage + 1;
 
   const dateLabel = new Date().toLocaleDateString("en-GB", {
     timeZone: tz,
@@ -78,13 +83,66 @@ export function TodayClient({
   });
 
   const handlePick = (t: EntryType) => {
+    setEditingEntry(null);
     setSheetType(t);
     setSheetOpen(true);
+  };
+
+  const handleEdit = (entry: LogRow) => {
+    setEditingEntry(entry);
+    setSheetType(entry.entry_type);
+    setSheetOpen(true);
+  };
+
+  const closeSheet = () => {
+    setSheetOpen(false);
+    setEditingEntry(null);
+  };
+
+  const handleUpdate = async (id: string, payload: NewEntry) => {
+    const prev = entries;
+    setEntries((p) =>
+      p.map((e) =>
+        e.id === id
+          ? {
+              ...e,
+              ...payload,
+              pages_equiv: pagesEquiv(payload.amount, payload.unit),
+            }
+          : e,
+      ),
+    );
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from("log_entries")
+      .update({
+        entry_type: payload.entry_type,
+        from_ref: payload.from_ref,
+        to_ref: payload.to_ref,
+        amount: payload.amount,
+        unit: payload.unit,
+        juz: payload.juz,
+        part: payload.part,
+        notes: payload.notes,
+      })
+      .eq("id", id)
+      .select("*")
+      .single();
+    if (error || !data) {
+      setEntries(prev);
+      setError(error?.message ?? "Couldn’t save your changes. Try again.");
+      return;
+    }
+    setEntries((p) => p.map((e) => (e.id === id ? (data as LogRow) : e)));
   };
 
   const handleSave = async (payload: NewEntry) => {
     if (!groupId) return;
     setError(null);
+    if (editingEntry) {
+      await handleUpdate(editingEntry.id, payload);
+      return;
+    }
     const tempId = `temp-${crypto.randomUUID()}`;
     const optimistic: LogRow = {
       id: tempId,
@@ -182,13 +240,14 @@ export function TodayClient({
         </div>
       </div>
 
-      {/* Resume-from bookmark */}
-      {lastPage != null && (
+      {/* Resume-from bookmark — shows the next page to start on. */}
+      {startPage != null && (
         <div className="px-5 pt-3">
           <div className="flex items-center gap-2 rounded-xl bg-accent-tint px-3.5 py-2.5 text-accent">
             <Bookmark className="size-4 shrink-0" />
             <span className="text-footnote font-medium">
-              Last read: {bookmarkLabel(lastPage)} · p.{lastPage}
+              {finished ? "Khatm done 🎉 Start again from" : "Start from"} p.
+              {startPage} · {bookmarkLabel(startPage)}
             </span>
           </div>
         </div>
@@ -246,6 +305,7 @@ export function TodayClient({
                 key={e.id}
                 entry={e}
                 tz={tz}
+                onEdit={handleEdit}
                 onDelete={handleDelete}
               />
             ))}
@@ -262,9 +322,10 @@ export function TodayClient({
 
       <LogSheet
         open={sheetOpen}
-        onClose={() => setSheetOpen(false)}
+        onClose={closeSheet}
         initialType={sheetType}
         onSave={handleSave}
+        editing={editingEntry}
       />
     </div>
   );

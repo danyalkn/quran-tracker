@@ -546,8 +546,11 @@ export function ChatClient({
                         />
                       </p>
                     </div>
-                    {/* Time revealed by swiping the conversation left. */}
-                    <span className="pointer-events-none absolute left-full top-1/2 w-16 -translate-y-1/2 pl-2 text-left text-[11px] tabular-nums text-faint">
+                    {/* Time revealed by swiping the conversation left. Offset a
+                        full px-4 past the row edge so it stays hidden (the
+                        scroller clips at the padding box, not the content box)
+                        until the swipe shifts it into view. */}
+                    <span className="pointer-events-none absolute left-[calc(100%+1rem)] top-1/2 w-16 -translate-y-1/2 pr-3 text-right text-[11px] tabular-nums text-faint">
                       {pending ? "…" : timeLabel(msg.created_at, tz)}
                     </span>
                   </div>
