@@ -32,6 +32,33 @@ export function timeLabel(ts: string | number | Date, tz: string): string {
   });
 }
 
+/**
+ * iMessage-style separator label for a chat time break, in the user's tz:
+ * "Today 6:12 AM", "Yesterday 9:01 PM", "Wed 3:14 PM" (this week), or
+ * "12 May, 4:00 PM" / "12 May 2025, 4:00 PM" (older).
+ */
+export function chatStamp(ts: string | number | Date, tz: string): string {
+  const ymd = localDate(ts, tz);
+  const today = todayLocal(tz);
+  const time = timeLabel(ts, tz);
+  if (ymd === today) return `Today ${time}`;
+  if (ymd === prevYmd(today)) return `Yesterday ${time}`;
+
+  const dThen = new Date(`${ymd}T12:00:00`);
+  const dToday = new Date(`${today}T12:00:00`);
+  const diffDays = Math.round((dToday.getTime() - dThen.getTime()) / 86_400_000);
+  if (diffDays > 1 && diffDays < 7) {
+    return `${dThen.toLocaleDateString("en-US", { weekday: "short" })} ${time}`;
+  }
+  const sameYear = dThen.getFullYear() === dToday.getFullYear();
+  const date = dThen.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
+  return `${date}, ${time}`;
+}
+
 function prevYmd(ymd: string): string {
   const d = new Date(`${ymd}T12:00:00`);
   d.setDate(d.getDate() - 1);

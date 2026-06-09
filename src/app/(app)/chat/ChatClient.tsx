@@ -1,14 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Send, Users } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import type { GroupMember, Message } from "@/lib/types";
-import { timeLabel } from "@/lib/dates";
+import { chatStamp, timeLabel } from "@/lib/dates";
 import { cn } from "@/lib/cn";
 import { Avatar } from "@/components/ui/Avatar";
 import { Sheet } from "@/components/ui/Sheet";
 import { useSwipeDownDismiss } from "@/lib/useSwipeDownDismiss";
+
+// Show a centered time separator when a message lands ≥1h after the previous
+// one (within the hour, consecutive messages share the last separator).
+const GAP_MS = 60 * 60 * 1000;
 
 function escapeRe(s: string) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -75,8 +79,15 @@ export function ChatClient({
   const [activeIdx, setActiveIdx] = useState(0);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const atBottomRef = useRef(true);
   const caretToSet = useRef<number | null>(null);
+
+  // Swipe-left-to-reveal message times (iMessage-style).
+  const [revealX, setRevealX] = useState(0);
+  const drag = useRef<{ x: number; y: number; axis: null | "x" | "y" } | null>(
+    null,
+  );
 
   const [showMembers, setShowMembers] = useState(false);
   const [notifyChat, setNotifyChat] = useState(initialNotifyChat);
@@ -104,7 +115,54 @@ export function ChatClient({
     [members],
   );
 
-  // Realtime: append others' new messages (our own are handled on send).
+  const scrollToBottom = useCallback((smooth = false) => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    requestAnimationFrame(() => {
+      el.scrollTo({
+        top: el.scrollHeight,
+        behavior: smooth ? "smooth" : "auto",
+      });
+      atBottomRef.current = true;
+    });
+  }, []);
+
+  // Re-fetch + merge messages. Heals gaps left when the realtime socket drops
+  // (backgrounded PWA, network blip) — missed messages reappear without the
+  // user having to manually refresh.
+  const syncMessages = useCallback(async () => {
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("messages")
+      .select("*")
+      .eq("group_id", groupId)
+      .order("created_at", { ascending: false })
+      .limit(100);
+    const server = ((data as Message[] | null) ?? []).reverse();
+    if (server.length === 0) return;
+    setMessages((prev) => {
+      const byId = new Map<string, Message>();
+      for (const m of server) byId.set(m.id, m);
+      // keep still-pending optimistic sends not yet on the server
+      for (const m of prev) {
+        if (m.id.startsWith("temp-") && !byId.has(m.id)) byId.set(m.id, m);
+      }
+      const next = Array.from(byId.values()).sort((a, b) =>
+        a.created_at.localeCompare(b.created_at),
+      );
+      // No change → keep the same reference so we don't re-render / re-scroll.
+      if (
+        next.length === prev.length &&
+        next.every((m, i) => m.id === prev[i].id)
+      ) {
+        return prev;
+      }
+      return next;
+    });
+  }, [groupId]);
+
+  // Realtime: append others' new messages (our own are handled on send). On
+  // every (re)subscribe we resync to backfill anything missed while down.
   useEffect(() => {
     const supabase = createClient();
     const channel = supabase
@@ -125,16 +183,91 @@ export function ChatClient({
           );
         },
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") syncMessages();
+      });
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [groupId, userId]);
+  }, [groupId, userId, syncMessages]);
 
-  // Keep pinned to the latest message.
+  // Resync when the app returns to the foreground — the socket usually dies
+  // while backgrounded on mobile / in a standalone PWA.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [messages.length]);
+    const onWake = () => {
+      if (document.visibilityState === "visible") syncMessages();
+    };
+    document.addEventListener("visibilitychange", onWake);
+    window.addEventListener("focus", onWake);
+    return () => {
+      document.removeEventListener("visibilitychange", onWake);
+      window.removeEventListener("focus", onWake);
+    };
+  }, [syncMessages]);
+
+  // Safety-net poll while the chat is open and visible: catches messages even
+  // if realtime silently dropped without us backgrounding (the "it didn't
+  // update until I refreshed" case). Cheap — merge is a no-op when nothing's new.
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (document.visibilityState === "visible") syncMessages();
+    }, 20_000);
+    return () => clearInterval(id);
+  }, [syncMessages]);
+
+  // Note how close to the bottom we are, so incoming messages don't yank the
+  // view when the user has scrolled up to read history.
+  const onScroll = () => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+  };
+
+  // Auto-scroll on new messages: always for our own sends, otherwise only when
+  // already pinned to the bottom.
+  useEffect(() => {
+    const last = messages[messages.length - 1];
+    if (!last) return;
+    if (last.user_id === userId || atBottomRef.current) scrollToBottom();
+  }, [messages, userId, scrollToBottom]);
+
+  // Land at the bottom on first open.
+  useEffect(() => {
+    scrollToBottom();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Keep pinned to the bottom when the keyboard opens (the viewport shrinks).
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const onResize = () => {
+      if (atBottomRef.current) scrollToBottom();
+    };
+    vv.addEventListener("resize", onResize);
+    return () => vv.removeEventListener("resize", onResize);
+  }, [scrollToBottom]);
+
+  // Swipe the conversation left to reveal each message's time.
+  const onListTouchStart = (e: React.TouchEvent) => {
+    const t = e.touches[0];
+    drag.current = { x: t.clientX, y: t.clientY, axis: null };
+  };
+  const onListTouchMove = (e: React.TouchEvent) => {
+    const s = drag.current;
+    if (!s) return;
+    const t = e.touches[0];
+    const dx = t.clientX - s.x;
+    const dy = t.clientY - s.y;
+    if (s.axis === null && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
+      s.axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+    }
+    if (s.axis === "x") setRevealX(Math.max(-64, Math.min(0, dx)));
+  };
+  const onListTouchEnd = () => {
+    drag.current = null;
+    setRevealX(0);
+  };
 
   // Restore caret after inserting a mention.
   useEffect(() => {
@@ -329,71 +462,100 @@ export function ChatClient({
       </Sheet>
 
       {/* Messages */}
-      <div className="flex flex-1 flex-col gap-2.5 overflow-y-auto px-4 py-4">
-        {messages.length === 0 && (
+      <div
+        ref={scrollerRef}
+        onScroll={onScroll}
+        onTouchStart={onListTouchStart}
+        onTouchMove={onListTouchMove}
+        onTouchEnd={onListTouchEnd}
+        style={{ touchAction: "pan-y" }}
+        className="flex flex-1 flex-col overflow-x-hidden overflow-y-auto px-4 py-4"
+      >
+        {messages.length === 0 ? (
           <div className="m-auto max-w-xs text-center">
             <p className="text-callout font-semibold">No messages yet</p>
             <p className="mt-1 text-footnote text-muted">
               Say salaam to your circle. Use @ to tag someone.
             </p>
           </div>
-        )}
-        {messages.map((msg, idx) => {
-          const mine = msg.user_id === userId;
-          const sender = memberMap.get(msg.user_id);
-          const prev = messages[idx - 1];
-          const showSender =
-            !mine && (!prev || prev.user_id !== msg.user_id);
-          const pending = msg.id.startsWith("temp-");
-          return (
-            <div
-              key={msg.id}
-              className={cn(
-                "flex items-end gap-2",
-                mine ? "justify-end" : "justify-start",
-              )}
-            >
-              {!mine && (
-                <div className="w-7 shrink-0">
-                  {showSender && (
-                    <Avatar
-                      name={sender?.display_name ?? "Member"}
-                      src={sender?.avatar_url}
-                      size={28}
-                    />
+        ) : (
+          <div
+            className="flex flex-col gap-2.5"
+            style={{
+              transform: `translateX(${revealX}px)`,
+              transition: revealX === 0 ? "transform 220ms var(--ease-spring)" : "none",
+            }}
+          >
+            {messages.map((msg, idx) => {
+              const mine = msg.user_id === userId;
+              const sender = memberMap.get(msg.user_id);
+              const prev = messages[idx - 1];
+              const gap = prev
+                ? new Date(msg.created_at).getTime() -
+                  new Date(prev.created_at).getTime()
+                : Infinity;
+              const showStamp = gap >= GAP_MS;
+              const showSender =
+                !mine && (showStamp || !prev || prev.user_id !== msg.user_id);
+              const pending = msg.id.startsWith("temp-");
+              return (
+                <div key={msg.id}>
+                  {showStamp && (
+                    <div className="flex justify-center py-2">
+                      <span className="text-[11px] font-medium text-faint">
+                        {chatStamp(msg.created_at, tz)}
+                      </span>
+                    </div>
                   )}
+                  <div
+                    className={cn(
+                      "relative flex items-end gap-2",
+                      mine ? "justify-end" : "justify-start",
+                    )}
+                  >
+                    {!mine && (
+                      <div className="w-7 shrink-0">
+                        {showSender && (
+                          <Avatar
+                            name={sender?.display_name ?? "Member"}
+                            src={sender?.avatar_url}
+                            size={28}
+                          />
+                        )}
+                      </div>
+                    )}
+                    <div
+                      className={cn(
+                        "max-w-[75%] rounded-2xl px-3.5 py-2.5 shadow-e1",
+                        mine
+                          ? "rounded-br-md bg-accent text-on-accent"
+                          : "rounded-bl-md bg-surface",
+                        pending && "opacity-70",
+                      )}
+                    >
+                      {showSender && (
+                        <p className="mb-0.5 text-footnote font-semibold text-accent">
+                          {sender?.display_name ?? "Member"}
+                        </p>
+                      )}
+                      <p className="whitespace-pre-wrap break-words text-callout">
+                        <MessageBody
+                          body={msg.body}
+                          names={memberNames}
+                          mine={mine}
+                        />
+                      </p>
+                    </div>
+                    {/* Time revealed by swiping the conversation left. */}
+                    <span className="pointer-events-none absolute left-full top-1/2 w-16 -translate-y-1/2 pl-2 text-left text-[11px] tabular-nums text-faint">
+                      {pending ? "…" : timeLabel(msg.created_at, tz)}
+                    </span>
+                  </div>
                 </div>
-              )}
-              <div
-                className={cn(
-                  "max-w-[75%] rounded-2xl px-3.5 py-2.5 shadow-e1",
-                  mine
-                    ? "rounded-br-md bg-accent text-on-accent"
-                    : "rounded-bl-md bg-surface",
-                  pending && "opacity-70",
-                )}
-              >
-                {showSender && (
-                  <p className="text-footnote font-semibold text-accent">
-                    {sender?.display_name ?? "Member"}
-                  </p>
-                )}
-                <p className="whitespace-pre-wrap break-words text-callout">
-                  <MessageBody body={msg.body} names={memberNames} mine={mine} />
-                </p>
-                <p
-                  className={cn(
-                    "mt-1 text-right text-[10px] tabular-nums",
-                    mine ? "text-on-accent/70" : "text-faint",
-                  )}
-                >
-                  {pending ? "sending…" : timeLabel(msg.created_at, tz)}
-                </p>
-              </div>
-            </div>
-          );
-        })}
-        <div ref={bottomRef} />
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Composer */}
