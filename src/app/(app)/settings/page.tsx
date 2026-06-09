@@ -9,6 +9,7 @@ import { NotificationsToggle } from "@/components/NotificationsToggle";
 import { CelebrateToggle } from "@/components/CelebrateToggle";
 import { SignOutButton } from "@/components/SignOutButton";
 import { DeleteAccount } from "@/components/DeleteAccount";
+import { BUILD } from "@/lib/build";
 
 export default async function SettingsPage() {
   const { user, profile } = await getAuth();
@@ -52,6 +53,10 @@ export default async function SettingsPage() {
           <SignOutButton />
           <DeleteAccount />
         </div>
+
+        <p className="pt-2 text-center text-caption text-faint">
+          Iqra · build {BUILD}
+        </p>
       </div>
     </div>
   );

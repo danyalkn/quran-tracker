@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { TabBar } from "@/components/ui/TabBar";
+import { UpdateChecker } from "@/components/UpdateChecker";
 
 /**
  * Authenticated app shell that keeps content above the on-screen keyboard.
@@ -59,6 +60,7 @@ export function AppFrame({ children }: { children: React.ReactNode }) {
       className="fixed inset-0 mx-auto flex w-full max-w-md flex-col pt-[env(safe-area-inset-top)]"
       style={{ paddingBottom: kb }}
     >
+      <UpdateChecker />
       <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
       {/* Hide the tab bar while typing so the chat fills the space above the
           keyboard. Only happens on devices with a soft keyboard. */}
