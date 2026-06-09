@@ -6,6 +6,7 @@ import { getMyReminders } from "@/lib/data";
 import { ProfileSection } from "@/components/ProfileSection";
 import { RemindersManager } from "@/components/RemindersManager";
 import { NotificationsToggle } from "@/components/NotificationsToggle";
+import { CelebrateToggle } from "@/components/CelebrateToggle";
 import { SignOutButton } from "@/components/SignOutButton";
 import { DeleteAccount } from "@/components/DeleteAccount";
 
@@ -42,6 +43,8 @@ export default async function SettingsPage() {
         />
 
         <NotificationsToggle userId={user.id} />
+
+        <CelebrateToggle />
 
         <RemindersManager userId={user.id} initial={reminders} />
 

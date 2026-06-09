@@ -1,65 +1,66 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { TabBar } from "@/components/ui/TabBar";
 
 /**
- * The authenticated app shell, sized to the *visual* viewport.
+ * Authenticated app shell that keeps content above the on-screen keyboard.
  *
- * iOS Safari (unlike Android Chrome's `interactive-widget=resizes-content`)
- * does not shrink the layout viewport when the soft keyboard opens: `100dvh`
- * stays full-height, so Safari scrolls the whole page up to reveal the focused
- * input — yanking the chat log up and leaving dead space below the bar.
- *
- * We instead pin a fixed-position frame to the visual viewport: its height
- * tracks `visualViewport.height` (shrinks with the keyboard) and it is
- * translated by `visualViewport.offsetTop` so it always overlays the visible
- * region. Result: the composer + tab bar sit directly above the keyboard with
- * no yank and no gap. Falls back to `h-dvh` before JS runs / where the API is
- * absent.
+ * iOS Safari does NOT shrink the layout viewport when the keyboard opens — only
+ * the *visual* viewport shrinks. So we keep the frame full-height (`fixed
+ * inset-0`) and pad the bottom by exactly the keyboard overlap, measured as
+ * `innerHeight − visualViewport.height − offsetTop`. Content then lays out in
+ * the space above the keyboard with no gap and no page-yank. The document is
+ * locked so iOS can't scroll the page out from under us. Works the same on
+ * Android (visual viewport also shrinks).
  */
 export function AppFrame({ children }: { children: React.ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null);
-  // True only when a soft keyboard is up (visual viewport much shorter than the
-  // layout viewport). Stays false on laptops — no on-screen keyboard, no gap.
-  const [keyboardOpen, setKeyboardOpen] = useState(false);
+  const [kb, setKb] = useState(0);
 
   useEffect(() => {
     const vv = window.visualViewport;
-    const el = ref.current;
-    if (!vv || !el) return;
+    if (!vv) return;
+
+    // Lock the document so the keyboard can't scroll the page.
+    const html = document.documentElement;
+    const prevOverflow = html.style.overflow;
+    html.style.overflow = "hidden";
 
     let frame = 0;
     const apply = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
-        el.style.height = `${vv.height}px`;
-        // `none` (not translateY(0)) when unshifted, so we don't create a
-        // containing block that would clip full-screen sheets to the column.
-        el.style.transform = vv.offsetTop
-          ? `translateY(${vv.offsetTop}px)`
-          : "none";
-        setKeyboardOpen(window.innerHeight - vv.height > 150);
+        const overlap = Math.max(
+          0,
+          window.innerHeight - vv.height - vv.offsetTop,
+        );
+        setKb(overlap);
       });
     };
 
     apply();
     vv.addEventListener("resize", apply);
     vv.addEventListener("scroll", apply);
+    window.addEventListener("resize", apply);
     return () => {
       cancelAnimationFrame(frame);
       vv.removeEventListener("resize", apply);
       vv.removeEventListener("scroll", apply);
+      window.removeEventListener("resize", apply);
+      html.style.overflow = prevOverflow;
     };
   }, []);
 
+  // Only a real soft keyboard pushes the overlap this high (laptops stay at 0).
+  const keyboardOpen = kb > 150;
+
   return (
     <div
-      ref={ref}
-      className="fixed inset-x-0 top-0 mx-auto flex h-dvh w-full max-w-md flex-col pt-[env(safe-area-inset-top)]"
+      className="fixed inset-0 mx-auto flex w-full max-w-md flex-col pt-[env(safe-area-inset-top)]"
+      style={{ paddingBottom: kb }}
     >
       <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
-      {/* Hide the tab bar while typing so the chat isn't cramped above the
+      {/* Hide the tab bar while typing so the chat fills the space above the
           keyboard. Only happens on devices with a soft keyboard. */}
       {!keyboardOpen && <TabBar />}
     </div>

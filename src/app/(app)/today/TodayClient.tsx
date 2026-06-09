@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Inbox, UserPlus, Bookmark } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -19,6 +19,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { SpeedDial } from "@/components/SpeedDial";
 import { LogSheet } from "@/components/LogSheet";
 import { EntryRow } from "@/components/EntryRow";
+import { Celebration, CELEBRATE_KEY } from "@/components/Celebration";
 
 type Filter = "all" | "new" | "revision";
 
@@ -47,6 +48,13 @@ export function TodayClient({
   );
   const [editingEntry, setEditingEntry] = useState<LogRow | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Confetti-on-reading preference (device-local; toggled in Settings).
+  const [celebrateTick, setCelebrateTick] = useState(0);
+  const celebrateOn = useRef(true);
+  useEffect(() => {
+    celebrateOn.current = localStorage.getItem(CELEBRATE_KEY) !== "0";
+  }, []);
 
   const today = todayLocal(tz);
 
@@ -142,6 +150,10 @@ export function TodayClient({
     if (editingEntry) {
       await handleUpdate(editingEntry.id, payload);
       return;
+    }
+    // Celebrate a freshly logged reading (not edits).
+    if (isReadingType(payload.entry_type) && celebrateOn.current) {
+      setCelebrateTick((t) => t + 1);
     }
     const tempId = `temp-${crypto.randomUUID()}`;
     const optimistic: LogRow = {
@@ -327,6 +339,8 @@ export function TodayClient({
         onSave={handleSave}
         editing={editingEntry}
       />
+
+      <Celebration trigger={celebrateTick} />
     </div>
   );
 }

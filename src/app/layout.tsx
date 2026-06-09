@@ -44,10 +44,6 @@ export const viewport: Viewport = {
   userScalable: false,
   // Extend under the notch / home indicator; CSS uses env(safe-area-inset-*).
   viewportFit: "cover",
-  // When the soft keyboard opens, shrink the *layout* viewport (not just the
-  // visual one) so h-dvh reflows above the keyboard instead of the page being
-  // scrolled up with dead space left below.
-  interactiveWidget: "resizes-content",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#FAFAF8" },
     { media: "(prefers-color-scheme: dark)", color: "#0B0B0C" },
