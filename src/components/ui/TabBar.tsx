@@ -24,7 +24,7 @@ export function TabBar() {
   return (
     <nav
       {...swipeDown}
-      className="flex items-center justify-around border-t border-border bg-surface px-2 pb-[max(0.375rem,env(safe-area-inset-bottom))] pt-1.5"
+      className="flex items-center justify-around border-t border-border bg-surface px-2 pb-[max(0.25rem,env(safe-area-inset-bottom))] pt-1"
     >
       {TABS.map(({ href, label, icon: Icon }) => {
         const active = pathname === href || pathname.startsWith(href + "/");
@@ -33,13 +33,13 @@ export function TabBar() {
             key={href}
             href={href}
             className={cn(
-              "flex flex-1 flex-col items-center gap-0.5 py-0.5 transition-colors",
+              "flex flex-1 flex-col items-center gap-0.5 py-0 transition-colors",
               active ? "text-accent" : "text-faint hover:text-muted",
             )}
             aria-current={active ? "page" : undefined}
           >
-            <Icon className="size-6" strokeWidth={active ? 2.25 : 2} />
-            <span className="text-caption font-medium">{label}</span>
+            <Icon className="size-5" strokeWidth={active ? 2.25 : 2} />
+            <span className="text-[10px] font-medium leading-tight">{label}</span>
           </Link>
         );
       })}
