@@ -24,7 +24,7 @@ export function TabBar() {
   return (
     <nav
       {...swipeDown}
-      className="flex items-center justify-around border-t border-border bg-surface px-2 pb-[max(0.25rem,env(safe-area-inset-bottom))] pt-1"
+      className="flex items-center justify-around border-t border-border bg-surface px-2 pb-[max(0.25rem,env(safe-area-inset-bottom))] pt-2.5"
     >
       {TABS.map(({ href, label, icon: Icon }) => {
         const active = pathname === href || pathname.startsWith(href + "/");
