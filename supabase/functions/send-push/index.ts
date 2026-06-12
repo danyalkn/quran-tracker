@@ -73,6 +73,9 @@ Deno.serve(async (req) => {
         await webpush.sendNotification(
           row.subscription as webpush.PushSubscription,
           JSON.stringify(payload),
+          // high urgency → FCM wakes the device out of Doze for prompt delivery
+          // even when the app is fully closed; TTL keeps it for a day if offline.
+          { urgency: "high", TTL: 60 * 60 * 24 },
         );
         sent++;
       } catch (err) {

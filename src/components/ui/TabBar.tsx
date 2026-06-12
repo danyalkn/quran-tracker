@@ -24,7 +24,7 @@ export function TabBar() {
   return (
     <nav
       {...swipeDown}
-      className="flex items-center justify-around border-t border-border bg-surface px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2"
+      className="flex items-center justify-around border-t border-border bg-surface px-2 pb-[max(0.375rem,env(safe-area-inset-bottom))] pt-1.5"
     >
       {TABS.map(({ href, label, icon: Icon }) => {
         const active = pathname === href || pathname.startsWith(href + "/");
@@ -33,7 +33,7 @@ export function TabBar() {
             key={href}
             href={href}
             className={cn(
-              "flex flex-1 flex-col items-center gap-1 py-1 transition-colors",
+              "flex flex-1 flex-col items-center gap-0.5 py-0.5 transition-colors",
               active ? "text-accent" : "text-faint hover:text-muted",
             )}
             aria-current={active ? "page" : undefined}

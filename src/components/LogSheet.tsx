@@ -145,17 +145,18 @@ export function LogSheet({
         setError("Enter how many pages you read.");
         return;
       }
-      if (!readLoc) {
-        setError(`Enter the last page you read (1–${TOTAL_PAGES}).`);
+      // Last page is optional, but if entered it must be a real page.
+      if (stoppedAt.trim() && !readLoc) {
+        setError(`Last page must be 1–${TOTAL_PAGES}, or leave it blank.`);
         return;
       }
       onSave({
         entry_type: initialType,
         from_ref: null,
-        to_ref: String(readLoc.page), // store the raw page; juz/surah derived
+        to_ref: readLoc ? String(readLoc.page) : null, // page; juz/surah derived
         amount: amt,
         unit: "page",
-        juz: readLoc.juz,
+        juz: readLoc ? readLoc.juz : null,
         part: null,
         notes: notes.trim() || null,
       });
@@ -223,7 +224,9 @@ export function LogSheet({
               </div>
             </div>
             <div className="flex w-full flex-col items-center gap-2">
-              <FieldLabel className="!mb-0">Last page you read</FieldLabel>
+              <FieldLabel className="!mb-0">
+                Last page you read (optional)
+              </FieldLabel>
               <div className="w-44">
                 <Input
                   inputMode="numeric"
