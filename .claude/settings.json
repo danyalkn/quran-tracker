@@ -10,7 +10,8 @@
       "Bash(curl -s https://iqra.fly.dev/api/version)",
       "Bash(npx tsc *)",
       "Bash(npm run *)",
-      "Bash(git commit -q -m 'design: new emerald green, light/dark theme toggle, iMessage-style chat *)"
+      "Bash(git commit -q -m 'design: new emerald green, light/dark theme toggle, iMessage-style chat *)",
+      "Bash(git commit -q -m 'design: soften dark-mode accent to a pastel green \\(#8ed4a6\\) *)"
     ]
   }
 }
