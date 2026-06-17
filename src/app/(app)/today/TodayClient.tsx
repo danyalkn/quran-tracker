@@ -338,6 +338,7 @@ export function TodayClient({
         initialType={sheetType}
         onSave={handleSave}
         editing={editingEntry}
+        lastReadPage={lastPage}
       />
 
       <Celebration trigger={celebrateTick} />

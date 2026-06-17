@@ -13,7 +13,8 @@ import { Sheet } from "@/components/ui/Sheet";
 import { Button } from "@/components/ui/Button";
 import { Input, Textarea, FieldLabel } from "@/components/ui/Field";
 import { WheelPicker } from "@/components/WheelPicker";
-import { TOTAL_PAGES, locatePage, pageFromRef } from "@/lib/mushaf";
+import { TOTAL_PAGES, clampPage, locatePage, pageFromRef } from "@/lib/mushaf";
+import { cn } from "@/lib/cn";
 
 type Portion = "Full" | "Half" | "Quarter" | "Pages";
 const PORTIONS: Portion[] = ["Full", "Half", "Quarter", "Pages"];
@@ -52,6 +53,7 @@ export function LogSheet({
   initialType,
   onSave,
   editing,
+  lastReadPage,
 }: {
   open: boolean;
   onClose: () => void;
@@ -59,6 +61,8 @@ export function LogSheet({
   onSave: (entry: NewEntry) => void;
   /** When set, the sheet edits this entry instead of creating a new one. */
   editing?: LogRow | null;
+  /** Most recent last-page read, used to auto-advance the bookmark. */
+  lastReadPage?: number | null;
 }) {
   const reading = isReadingType(initialType);
   const sabak = initialType === "sabak";
@@ -73,6 +77,8 @@ export function LogSheet({
   // reading
   const [pagesRead, setPagesRead] = useState("");
   const [stoppedAt, setStoppedAt] = useState("");
+  // When on, the last page = previous bookmark + pages read (auto-advance).
+  const [autoPage, setAutoPage] = useState(true);
   // shared
   const [notes, setNotes] = useState("");
   const [showNotes, setShowNotes] = useState(false);
@@ -83,6 +89,10 @@ export function LogSheet({
     setError(null);
     setNotes(editing?.notes ?? "");
     setShowNotes(Boolean(editing?.notes));
+
+    // Auto-advance on by default for a fresh reading; off when editing so the
+    // stored page shows as-is.
+    setAutoPage(!editing);
 
     if (editing) {
       // Prefill from the entry being edited.
@@ -120,6 +130,16 @@ export function LogSheet({
     /^\d+$/.test(stoppedAt) && stoppedNum >= 1 && stoppedNum <= TOTAL_PAGES;
   const readLoc = stoppedValid ? locatePage(stoppedNum) : null;
 
+  // Auto-advance: new last page = previous bookmark + pages read.
+  const readAmt = Number(pagesRead);
+  const readAmtValid = pagesRead.trim() !== "" && !Number.isNaN(readAmt) && readAmt > 0;
+  const autoLastPage = readAmtValid
+    ? clampPage(Math.round((lastReadPage ?? 0) + readAmt))
+    : null;
+  const autoLoc = autoLastPage != null ? locatePage(autoLastPage) : null;
+  // The location we'll actually store for this reading.
+  const finalLoc = autoPage ? autoLoc : readLoc;
+
   // Numbers only — up to 2 decimal places for pages, integer for the page no.
   const onPagesReadChange = (v: string) => {
     if (/^\d*\.?\d{0,2}$/.test(v)) setPagesRead(v);
@@ -145,18 +165,19 @@ export function LogSheet({
         setError("Enter how many pages you read.");
         return;
       }
-      // Last page is optional, but if entered it must be a real page.
-      if (stoppedAt.trim() && !readLoc) {
+      // Manual last page is optional, but if entered it must be a real page.
+      if (!autoPage && stoppedAt.trim() && !readLoc) {
         setError(`Last page must be 1–${TOTAL_PAGES}, or leave it blank.`);
         return;
       }
+      const loc = autoPage ? autoLoc : readLoc;
       onSave({
         entry_type: initialType,
         from_ref: null,
-        to_ref: readLoc ? String(readLoc.page) : null, // page; juz/surah derived
+        to_ref: loc ? String(loc.page) : null, // page; juz/surah derived
         amount: amt,
         unit: "page",
-        juz: readLoc ? readLoc.juz : null,
+        juz: loc ? loc.juz : null,
         part: null,
         notes: notes.trim() || null,
       });
@@ -223,34 +244,86 @@ export function LogSheet({
                 <span className="text-callout text-muted">pages</span>
               </div>
             </div>
-            <div className="flex w-full flex-col items-center gap-2">
-              <FieldLabel className="!mb-0">
-                Last page you read (optional)
-              </FieldLabel>
-              <div className="w-44">
-                <Input
-                  inputMode="numeric"
-                  placeholder="1–604"
-                  value={stoppedAt}
-                  onChange={(e) => onStoppedChange(e.target.value)}
-                  className="text-center"
-                />
+            <div className="w-full">
+              {/* Auto-advance the bookmark: last page = previous + pages read. */}
+              <div className="flex items-center gap-3 rounded-2xl bg-surface p-3.5 shadow-e1">
+                <div className="min-w-0 flex-1">
+                  <p className="text-callout font-semibold">
+                    Continue from last page
+                  </p>
+                  <p className="text-footnote text-muted">
+                    {autoPage
+                      ? lastReadPage != null
+                        ? `Adds your pages onto p.${lastReadPage}.`
+                        : "Counts from the start of the Qur’an."
+                      : "Enter the last page yourself."}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAutoPage((v) => !v)}
+                  aria-pressed={autoPage}
+                  aria-label="Continue from last page"
+                  className={cn(
+                    "relative h-7 w-12 shrink-0 rounded-full transition-colors",
+                    autoPage ? "bg-accent" : "bg-border",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "absolute top-0.5 size-6 rounded-full bg-white shadow transition-all",
+                      autoPage ? "left-[1.375rem]" : "left-0.5",
+                    )}
+                  />
+                </button>
               </div>
-              {/* Live bookmark from the page they stopped on. */}
-              <div className="flex h-9 items-center">
-                {readLoc ? (
-                  <span className="inline-flex items-center gap-2 rounded-full bg-accent-tint px-3.5 py-1.5 text-footnote font-medium text-accent">
-                    Juz {readLoc.juz} · {readLoc.surah.name}
-                    <span dir="rtl" className="text-faint">
-                      {readLoc.surah.arabic}
+
+              {autoPage ? (
+                <div className="mt-3 flex h-9 items-center justify-center">
+                  {finalLoc ? (
+                    <span className="inline-flex items-center gap-2 rounded-full bg-accent-tint px-3.5 py-1.5 text-footnote font-medium text-accent">
+                      Now on p.{finalLoc.page} · Juz {finalLoc.juz} ·{" "}
+                      {finalLoc.surah.name}
+                      <span dir="rtl" className="text-faint">
+                        {finalLoc.surah.arabic}
+                      </span>
                     </span>
-                  </span>
-                ) : stoppedAt ? (
-                  <span className="text-footnote text-faint">
-                    Enter a page from 1 to {TOTAL_PAGES}
-                  </span>
-                ) : null}
-              </div>
+                  ) : (
+                    <span className="text-footnote text-faint">
+                      Enter pages read to set your bookmark
+                    </span>
+                  )}
+                </div>
+              ) : (
+                <div className="mt-3 flex flex-col items-center gap-2">
+                  <FieldLabel className="!mb-0">
+                    Last page you read (optional)
+                  </FieldLabel>
+                  <div className="w-44">
+                    <Input
+                      inputMode="numeric"
+                      placeholder="1–604"
+                      value={stoppedAt}
+                      onChange={(e) => onStoppedChange(e.target.value)}
+                      className="text-center"
+                    />
+                  </div>
+                  <div className="flex h-9 items-center">
+                    {readLoc ? (
+                      <span className="inline-flex items-center gap-2 rounded-full bg-accent-tint px-3.5 py-1.5 text-footnote font-medium text-accent">
+                        Juz {readLoc.juz} · {readLoc.surah.name}
+                        <span dir="rtl" className="text-faint">
+                          {readLoc.surah.arabic}
+                        </span>
+                      </span>
+                    ) : stoppedAt ? (
+                      <span className="text-footnote text-faint">
+                        Enter a page from 1 to {TOTAL_PAGES}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         ) : sabak ? (
