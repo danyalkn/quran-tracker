@@ -480,28 +480,39 @@ export function ChatClient({
           </div>
         ) : (
           <div
-            className="flex flex-col gap-2.5"
+            className="flex flex-col"
             style={{
               transform: `translateX(${revealX}px)`,
-              transition: revealX === 0 ? "transform 220ms var(--ease-spring)" : "none",
+              transition:
+                revealX === 0 ? "transform 220ms var(--ease-spring)" : "none",
             }}
           >
             {messages.map((msg, idx) => {
               const mine = msg.user_id === userId;
               const sender = memberMap.get(msg.user_id);
               const prev = messages[idx - 1];
-              const gap = prev
+              const next = messages[idx + 1];
+              const gapPrev = prev
                 ? new Date(msg.created_at).getTime() -
                   new Date(prev.created_at).getTime()
                 : Infinity;
-              const showStamp = gap >= GAP_MS;
-              const showSender =
-                !mine && (showStamp || !prev || prev.user_id !== msg.user_id);
+              const gapNext = next
+                ? new Date(next.created_at).getTime() -
+                  new Date(msg.created_at).getTime()
+                : Infinity;
+              const showStamp = gapPrev >= GAP_MS;
+              // Group consecutive same-sender messages (within the hour).
+              const sameAsPrev =
+                !!prev && prev.user_id === msg.user_id && !showStamp;
+              const sameAsNext =
+                !!next && next.user_id === msg.user_id && gapNext < GAP_MS;
+              const firstOfGroup = !sameAsPrev;
+              const lastOfGroup = !sameAsNext;
               const pending = msg.id.startsWith("temp-");
               return (
-                <div key={msg.id}>
+                <div key={msg.id} className={sameAsPrev ? "mt-0.5" : "mt-3"}>
                   {showStamp && (
-                    <div className="flex justify-center py-2">
+                    <div className="flex justify-center pb-2 pt-1">
                       <span className="text-[11px] font-medium text-faint">
                         {chatStamp(msg.created_at, tz)}
                       </span>
@@ -514,8 +525,8 @@ export function ChatClient({
                     )}
                   >
                     {!mine && (
-                      <div className="w-7 shrink-0">
-                        {showSender && (
+                      <div className="w-7 shrink-0 self-end">
+                        {lastOfGroup && (
                           <Avatar
                             name={sender?.display_name ?? "Member"}
                             src={sender?.avatar_url}
@@ -526,19 +537,24 @@ export function ChatClient({
                     )}
                     <div
                       className={cn(
-                        "max-w-[75%] rounded-2xl px-3.5 py-2.5 shadow-e1",
+                        "max-w-[76%] rounded-[20px] px-3.5 py-2",
                         mine
-                          ? "rounded-br-md bg-accent text-on-accent"
-                          : "rounded-bl-md bg-surface",
+                          ? "bg-accent text-on-accent"
+                          : "bg-surface-2 text-foreground",
+                        // Tighten the "spine" corners so a group reads as one stack.
+                        mine && sameAsPrev && "rounded-tr-[7px]",
+                        mine && sameAsNext && "rounded-br-[7px]",
+                        !mine && sameAsPrev && "rounded-tl-[7px]",
+                        !mine && sameAsNext && "rounded-bl-[7px]",
                         pending && "opacity-70",
                       )}
                     >
-                      {showSender && (
+                      {!mine && firstOfGroup && (
                         <p className="mb-0.5 text-footnote font-semibold text-accent">
                           {sender?.display_name ?? "Member"}
                         </p>
                       )}
-                      <p className="whitespace-pre-wrap break-words text-callout">
+                      <p className="whitespace-pre-wrap break-words text-[15px] leading-snug">
                         <MessageBody
                           body={msg.body}
                           names={memberNames}

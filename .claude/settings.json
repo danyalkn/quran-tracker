@@ -6,7 +6,11 @@
       "Read(//private/tmp/**)",
       "Bash(git add *)",
       "Bash(git commit -q -m 'feat\\(reading\\): auto-advance bookmark toggle \\(last page = previous + pages read\\) *)",
-      "Bash(fly deploy *)"
+      "Bash(fly deploy *)",
+      "Bash(curl -s https://iqra.fly.dev/api/version)",
+      "Bash(npx tsc *)",
+      "Bash(npm run *)",
+      "Bash(git commit -q -m 'design: new emerald green, light/dark theme toggle, iMessage-style chat *)"
     ]
   }
 }

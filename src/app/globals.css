@@ -18,9 +18,9 @@
   --muted: #6b6760; /* secondary text */
   --faint: #9a958c; /* tertiary text / placeholders */
 
-  --accent: #1b6b53; /* deep emerald-pine */
-  --accent-hover: #14583f; /* pressed/hover */
-  --accent-tint: #e8f1ed; /* subtle accent background wash */
+  --accent: #157f43; /* emerald green */
+  --accent-hover: #116b38; /* pressed/hover */
+  --accent-tint: #e7f6ec; /* subtle accent background wash */
   --on-accent: #ffffff; /* text/icons on accent */
 
   --warn: #b5791f; /* streak-at-risk, caution */
@@ -48,10 +48,10 @@
     --muted: #a4a199;
     --faint: #6f6d66;
 
-    --accent: #4fb590; /* lifted emerald for contrast on dark */
-    --accent-hover: #5fc8a1;
-    --accent-tint: #15271f;
-    --on-accent: #07140f;
+    --accent: #34d07a; /* bright emerald green for dark */
+    --accent-hover: #4bdc8d;
+    --accent-tint: #16291f;
+    --on-accent: #04160c;
 
     --warn: #d9a24a;
     --warn-tint: #2a2113;
@@ -79,10 +79,10 @@
   --muted: #a4a199;
   --faint: #6f6d66;
 
-  --accent: #4fb590;
-  --accent-hover: #5fc8a1;
-  --accent-tint: #15271f;
-  --on-accent: #07140f;
+  --accent: #34d07a;
+  --accent-hover: #4bdc8d;
+  --accent-tint: #16291f;
+  --on-accent: #04160c;
 
   --warn: #d9a24a;
   --warn-tint: #2a2113;
@@ -105,9 +105,9 @@
   --foreground: #1c1b19;
   --muted: #6b6760;
   --faint: #9a958c;
-  --accent: #1b6b53;
-  --accent-hover: #14583f;
-  --accent-tint: #e8f1ed;
+  --accent: #157f43;
+  --accent-hover: #116b38;
+  --accent-tint: #e7f6ec;
   --on-accent: #ffffff;
   --warn: #b5791f;
   --warn-tint: #f6ecd9;

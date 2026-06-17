@@ -45,8 +45,8 @@ export const viewport: Viewport = {
   // Extend under the notch / home indicator; CSS uses env(safe-area-inset-*).
   viewportFit: "cover",
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#FAFAF8" },
-    { media: "(prefers-color-scheme: dark)", color: "#0B0B0C" },
+    { media: "(prefers-color-scheme: light)", color: "#faf8f3" },
+    { media: "(prefers-color-scheme: dark)", color: "#0e0f0d" },
   ],
 };
 
@@ -58,6 +58,13 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${inter.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">
+        {/* Apply the saved theme before paint to avoid a flash. "system" (or
+            unset) falls through to the prefers-color-scheme media query. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem('iqra:theme');if(t==='light'||t==='dark'){document.documentElement.dataset.theme=t;}}catch(e){}})();`,
+          }}
+        />
         <ServiceWorkerRegister />
         {children}
       </body>
