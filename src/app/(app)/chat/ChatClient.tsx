@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Send, Users } from "lucide-react";
+import { Search, Send, UserPlus, Users } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import type { GroupMember, Message } from "@/lib/types";
 import { chatStamp, timeLabel } from "@/lib/dates";
@@ -53,14 +53,23 @@ function MessageBody({
   return <>{out}</>;
 }
 
+type SearchUser = {
+  id: string;
+  display_name: string;
+  avatar_url: string | null;
+  email: string;
+  is_member: boolean;
+};
+
 export function ChatClient({
   groupId,
   groupName,
   tz,
   userId,
-  members,
+  members: initialMembers,
   initialMessages,
   initialNotifyChat,
+  isOwner,
 }: {
   groupId: string;
   groupName: string;
@@ -69,7 +78,9 @@ export function ChatClient({
   members: GroupMember[];
   initialMessages: Message[];
   initialNotifyChat: boolean;
+  isOwner: boolean;
 }) {
+  const [members, setMembers] = useState<GroupMember[]>(initialMembers);
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [draft, setDraft] = useState("");
   const [mentionQuery, setMentionQuery] = useState<{
@@ -104,6 +115,59 @@ export function ChatClient({
       .update({ notify_chat: next })
       .eq("id", userId);
     if (error) setNotifyChat(!next); // revert on failure
+  };
+
+  // ── Owner-only: add members ───────────────────────────────────────────────
+  const [memberQuery, setMemberQuery] = useState("");
+  const [results, setResults] = useState<SearchUser[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [addingId, setAddingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isOwner) return;
+    const q = memberQuery.trim();
+    if (!q) {
+      setResults([]);
+      setSearching(false);
+      return;
+    }
+    setSearching(true);
+    const t = setTimeout(async () => {
+      const supabase = createClient();
+      const { data } = await supabase.rpc("search_users", {
+        p_group_id: groupId,
+        q,
+      });
+      setResults((data as SearchUser[] | null) ?? []);
+      setSearching(false);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [memberQuery, isOwner, groupId]);
+
+  const addMember = async (u: SearchUser) => {
+    setAddingId(u.id);
+    const supabase = createClient();
+    const { error } = await supabase.rpc("add_group_member", {
+      p_group_id: groupId,
+      p_user_id: u.id,
+    });
+    setAddingId(null);
+    if (error) return;
+    setResults((r) =>
+      r.map((x) => (x.id === u.id ? { ...x, is_member: true } : x)),
+    );
+    setMembers((m) =>
+      m.some((x) => x.user_id === u.id)
+        ? m
+        : [
+            ...m,
+            {
+              user_id: u.id,
+              display_name: u.display_name,
+              avatar_url: u.avatar_url,
+            },
+          ],
+    );
   };
 
   const memberMap = useMemo(
@@ -438,6 +502,73 @@ export function ChatClient({
               />
             </button>
           </div>
+
+          {/* Owner-only: add members by name or email. */}
+          {isOwner && (
+            <div className="mb-4">
+              <p className="mb-2 px-1 text-footnote font-medium uppercase tracking-wider text-faint">
+                Add member
+              </p>
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
+                <input
+                  value={memberQuery}
+                  onChange={(e) => setMemberQuery(e.target.value)}
+                  placeholder="Search by name or email"
+                  className="w-full rounded-xl bg-surface-2 py-2.5 pl-9 pr-3 text-callout text-foreground placeholder:text-faint outline-none focus:ring-2 focus:ring-accent/30"
+                />
+              </div>
+
+              {memberQuery.trim() && (
+                <div className="mt-2 space-y-1.5">
+                  {searching && results.length === 0 ? (
+                    <p className="px-1 py-2 text-footnote text-faint">
+                      Searching…
+                    </p>
+                  ) : results.length === 0 ? (
+                    <p className="px-1 py-2 text-footnote text-faint">
+                      No one found.
+                    </p>
+                  ) : (
+                    results.map((u) => (
+                      <div
+                        key={u.id}
+                        className="flex items-center gap-3 rounded-2xl bg-surface p-2.5 shadow-e1"
+                      >
+                        <Avatar
+                          name={u.display_name || u.email}
+                          src={u.avatar_url}
+                          size={36}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-subhead font-medium">
+                            {u.display_name || "—"}
+                          </p>
+                          <p className="truncate text-caption text-faint">
+                            {u.email}
+                          </p>
+                        </div>
+                        {u.is_member ? (
+                          <span className="shrink-0 px-2 text-footnote font-medium text-faint">
+                            Added
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => addMember(u)}
+                            disabled={addingId === u.id}
+                            className="flex shrink-0 items-center gap-1 rounded-full bg-accent px-3 py-1.5 text-footnote font-semibold text-on-accent transition active:scale-95 disabled:opacity-50"
+                          >
+                            <UserPlus className="size-3.5" strokeWidth={2.5} />
+                            {addingId === u.id ? "Adding…" : "Add"}
+                          </button>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           <p className="mb-2 px-1 text-footnote font-medium uppercase tracking-wider text-faint">
             Members

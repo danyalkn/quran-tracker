@@ -39,6 +39,7 @@ export default async function ChatPage() {
       members={members}
       initialMessages={messages}
       initialNotifyChat={profile.notify_chat ?? true}
+      isOwner={membership.role === "owner"}
     />
   );
 }
