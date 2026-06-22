@@ -12,14 +12,14 @@
 // exact boundaries rather than a formula.
 // ════════════════════════════════════════════════════════════════════════
 
-export const TOTAL_PAGES = 604;
+const MADANI_TOTAL = 604;
 
-/** Start page of each juz — index 0 → Juz 1, … index 29 → Juz 30. */
-export const JUZ_START_PAGES = [
+/** Start page of each juz in the 15-line Madani mushaf (index 0 → Juz 1). */
+const MADANI_JUZ_STARTS = [
   1, 22, 42, 62, 82, 102, 121, 142, 162, 182,
   201, 222, 242, 262, 282, 302, 322, 342, 362, 382,
   402, 422, 442, 462, 482, 502, 522, 542, 562, 582,
-] as const;
+];
 
 export type Surah = {
   number: number;
@@ -146,53 +146,106 @@ export const SURAHS: Surah[] = [
   { number: 114, name: 'An-Nas', arabic: 'الناس', page: 604 },
 ];
 
-/** Last read page → its place in the mushaf. */
+/** Which mushaf an entry was logged in / a user reads. */
+export type MushafId = "uthmani15" | "indopak13";
+export const DEFAULT_MUSHAF: MushafId = "uthmani15";
+
+// The 13-line Indo-Pak isn't standardized across publishers, so rather than
+// invent per-surah page numbers we PROJECT the content-fixed 15-line positions
+// onto the 13-line's page count: every surah/juz begins at the same fraction of
+// the way through the Qur'an in any mushaf. Accurate to within a few pages;
+// recalibrate INDOPAK13_TOTAL to a specific print to tighten it.
+const INDOPAK13_TOTAL = 849;
+function project(madaniPage: number, total: number): number {
+  const f = (madaniPage - 1) / (MADANI_TOTAL - 1);
+  return Math.min(total, Math.max(1, Math.round(1 + f * (total - 1))));
+}
+
+type MushafSpec = {
+  id: MushafId;
+  totalPages: number;
+  juzStart: number[]; // length 30
+  surahStart: number[]; // length 114, index = surah number − 1
+};
+
+const SPECS: Record<MushafId, MushafSpec> = {
+  uthmani15: {
+    id: "uthmani15",
+    totalPages: MADANI_TOTAL,
+    juzStart: MADANI_JUZ_STARTS,
+    surahStart: SURAHS.map((s) => s.page),
+  },
+  indopak13: {
+    id: "indopak13",
+    totalPages: INDOPAK13_TOTAL,
+    juzStart: MADANI_JUZ_STARTS.map((p) => project(p, INDOPAK13_TOTAL)),
+    surahStart: SURAHS.map((s) => project(s.page, INDOPAK13_TOTAL)),
+  },
+};
+
+function spec(m: MushafId | null | undefined): MushafSpec {
+  return SPECS[m ?? DEFAULT_MUSHAF] ?? SPECS.uthmani15;
+}
+
+/** Options for the settings picker. */
+export const MUSHAF_OPTIONS: { id: MushafId; label: string; sub: string }[] = [
+  { id: "uthmani15", label: "15-line Uthmani", sub: "Madani · 604 pages" },
+  { id: "indopak13", label: "13-line Indo-Pak", sub: `~${INDOPAK13_TOTAL} pages` },
+];
+
+/** Total page count of a mushaf. */
+export function totalPages(m: MushafId): number {
+  return spec(m).totalPages;
+}
+
 export type MushafLocation = { page: number; juz: number; surah: Surah };
 
-/** Clamp/round any input to a valid mushaf page (1…604). */
-export function clampPage(page: number): number {
-  return Math.min(TOTAL_PAGES, Math.max(1, Math.round(page)));
+/** Clamp/round any input to a valid page for the given mushaf. */
+export function clampPage(m: MushafId, page: number): number {
+  return Math.min(spec(m).totalPages, Math.max(1, Math.round(page)));
 }
 
 /** Pull a page number out of a stored bookmark ref ("262" or "Page 262"). */
 export function pageFromRef(ref: string | null | undefined): number | null {
   if (!ref) return null;
-  const m = ref.match(/\d+/);
-  if (!m) return null;
-  const n = Number(m[0]);
-  return Number.isFinite(n) && n >= 1 && n <= TOTAL_PAGES ? n : null;
+  const match = ref.match(/\d+/);
+  if (!match) return null;
+  const n = Number(match[0]);
+  return Number.isFinite(n) && n >= 1 ? n : null;
 }
 
-/** Juz (1–30) that a page falls in. */
-export function juzForPage(page: number): number {
-  const p = clampPage(page);
+/** Juz (1–30) that a page falls in, for the given mushaf. */
+export function juzForPage(m: MushafId, page: number): number {
+  const s = spec(m);
+  const p = clampPage(m, page);
   let juz = 1;
-  for (let i = 0; i < JUZ_START_PAGES.length; i++) {
-    if (p >= JUZ_START_PAGES[i]) juz = i + 1;
+  for (let i = 0; i < s.juzStart.length; i++) {
+    if (p >= s.juzStart[i]) juz = i + 1;
     else break;
   }
   return juz;
 }
 
-/** The surah a page belongs to — the latest surah to have begun by that page. */
-export function surahForPage(page: number): Surah {
-  const p = clampPage(page);
+/** The surah a page belongs to — the latest surah begun by that page. */
+export function surahForPage(m: MushafId, page: number): Surah {
+  const s = spec(m);
+  const p = clampPage(m, page);
   let found = SURAHS[0];
-  for (const s of SURAHS) {
-    if (s.page <= p) found = s;
+  for (let i = 0; i < SURAHS.length; i++) {
+    if (s.surahStart[i] <= p) found = SURAHS[i];
     else break;
   }
   return found;
 }
 
-/** Full location for a last-read page. */
-export function locatePage(page: number): MushafLocation {
-  const p = clampPage(page);
-  return { page: p, juz: juzForPage(p), surah: surahForPage(p) };
+/** Full location for a last-read page in the given mushaf. */
+export function locatePage(m: MushafId, page: number): MushafLocation {
+  const p = clampPage(m, page);
+  return { page: p, juz: juzForPage(m, p), surah: surahForPage(m, p) };
 }
 
 /** Compact bookmark label, e.g. "Juz 7 · An-Nahl". */
-export function bookmarkLabel(page: number): string {
-  const loc = locatePage(page);
+export function bookmarkLabel(m: MushafId, page: number): string {
+  const loc = locatePage(m, page);
   return `Juz ${loc.juz} · ${loc.surah.name}`;
 }

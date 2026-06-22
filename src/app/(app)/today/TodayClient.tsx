@@ -11,7 +11,13 @@ import {
   type EntryType,
   type Mode,
 } from "@/lib/entries";
-import { bookmarkLabel, pageFromRef, TOTAL_PAGES } from "@/lib/mushaf";
+import {
+  bookmarkLabel,
+  pageFromRef,
+  totalPages,
+  DEFAULT_MUSHAF,
+  type MushafId,
+} from "@/lib/mushaf";
 import type { LogRow, NewEntry } from "@/lib/types";
 import { localDate, todayLocal, currentStreak, longestStreak } from "@/lib/dates";
 import { cn } from "@/lib/cn";
@@ -31,6 +37,7 @@ export function TodayClient({
   userId,
   groupId,
   initialEntries,
+  mushaf,
 }: {
   mode: Mode;
   tz: string;
@@ -39,6 +46,7 @@ export function TodayClient({
   userId: string;
   groupId: string | null;
   initialEntries: LogRow[];
+  mushaf: MushafId;
 }) {
   const [entries, setEntries] = useState<LogRow[]>(initialEntries);
   const [filter, setFilter] = useState<Filter>("all");
@@ -75,13 +83,14 @@ export function TodayClient({
 
   // Most recent reading bookmark → where to start next. We store the last page
   // read but show the *next* page to pick up from (wrapping to 1 after a khatm).
-  const lastPage = (() => {
-    const e = entries.find((x) => isReadingType(x.entry_type) && x.to_ref);
-    return e ? pageFromRef(e.to_ref) : null;
-  })();
-  const finished = lastPage != null && lastPage >= TOTAL_PAGES;
-  const startPage =
-    lastPage == null ? null : finished ? 1 : lastPage + 1;
+  // Resolve juz/surah in the mushaf that entry was logged in.
+  const lastReading = entries.find(
+    (x) => isReadingType(x.entry_type) && x.to_ref,
+  );
+  const lastMushaf = lastReading?.mushaf ?? DEFAULT_MUSHAF;
+  const lastPage = lastReading ? pageFromRef(lastReading.to_ref) : null;
+  const finished = lastPage != null && lastPage >= totalPages(lastMushaf);
+  const startPage = lastPage == null ? null : finished ? 1 : lastPage + 1;
 
   const dateLabel = new Date().toLocaleDateString("en-GB", {
     timeZone: tz,
@@ -131,6 +140,7 @@ export function TodayClient({
         unit: payload.unit,
         juz: payload.juz,
         part: payload.part,
+        mushaf: payload.mushaf,
         notes: payload.notes,
       })
       .eq("id", id)
@@ -179,6 +189,7 @@ export function TodayClient({
         unit: payload.unit,
         juz: payload.juz,
         part: payload.part,
+        mushaf: payload.mushaf,
         notes: payload.notes,
       })
       .select("*")
@@ -259,7 +270,7 @@ export function TodayClient({
             <Bookmark className="size-4 shrink-0" />
             <span className="text-footnote font-medium">
               {finished ? "Khatm done 🎉 Start again from" : "Start from"} p.
-              {startPage} · {bookmarkLabel(startPage)}
+              {startPage} · {bookmarkLabel(lastMushaf, startPage)}
             </span>
           </div>
         </div>
@@ -339,6 +350,7 @@ export function TodayClient({
         onSave={handleSave}
         editing={editingEntry}
         lastReadPage={lastPage}
+        mushaf={mushaf}
       />
 
       <Celebration trigger={celebrateTick} />

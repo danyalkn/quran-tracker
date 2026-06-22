@@ -1,13 +1,14 @@
 import { ENTRY_META, UNIT_META, isReadingType } from "@/lib/entries";
-import { bookmarkLabel, pageFromRef } from "@/lib/mushaf";
+import { bookmarkLabel, pageFromRef, DEFAULT_MUSHAF } from "@/lib/mushaf";
 import type { LogRow } from "@/lib/types";
 
 /** Primary label for an entry (what was covered). */
 export function describeEntry(e: LogRow): string {
-  // Reading/revising: a bookmark derived from the last page read.
+  // Reading/revising: a bookmark derived from the last page read, in the
+  // mushaf the entry was logged in (so it reads right for everyone).
   if (isReadingType(e.entry_type)) {
     const page = pageFromRef(e.to_ref);
-    if (page != null) return bookmarkLabel(page); // "Juz 7 · An-Nahl"
+    if (page != null) return bookmarkLabel(e.mushaf ?? DEFAULT_MUSHAF, page);
     return ENTRY_META[e.entry_type].label;
   }
   // Structured hifz entry (juz + portion).

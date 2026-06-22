@@ -8,6 +8,7 @@ import { RemindersManager } from "@/components/RemindersManager";
 import { NotificationsToggle } from "@/components/NotificationsToggle";
 import { CelebrateToggle } from "@/components/CelebrateToggle";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { MushafSelect } from "@/components/MushafSelect";
 import { SignOutButton } from "@/components/SignOutButton";
 import { DeleteAccount } from "@/components/DeleteAccount";
 import { BUILD } from "@/lib/build";
@@ -43,6 +44,8 @@ export default async function SettingsPage() {
             avatar_url: profile.avatar_url,
           }}
         />
+
+        <MushafSelect userId={user.id} initial={profile.mushaf ?? "uthmani15"} />
 
         <ThemeToggle />
 

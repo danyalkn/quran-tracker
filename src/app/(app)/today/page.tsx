@@ -22,6 +22,7 @@ export default async function TodayPage() {
       userId={user.id}
       groupId={membership?.group_id ?? null}
       initialEntries={entries}
+      mushaf={profile.mushaf ?? "uthmani15"}
     />
   );
 }

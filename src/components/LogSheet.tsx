@@ -13,7 +13,14 @@ import { Sheet } from "@/components/ui/Sheet";
 import { Button } from "@/components/ui/Button";
 import { Input, Textarea, FieldLabel } from "@/components/ui/Field";
 import { WheelPicker } from "@/components/WheelPicker";
-import { TOTAL_PAGES, clampPage, locatePage, pageFromRef } from "@/lib/mushaf";
+import {
+  totalPages,
+  clampPage,
+  locatePage,
+  pageFromRef,
+  DEFAULT_MUSHAF,
+  type MushafId,
+} from "@/lib/mushaf";
 import { cn } from "@/lib/cn";
 
 type Portion = "Full" | "Half" | "Quarter" | "Pages";
@@ -54,6 +61,7 @@ export function LogSheet({
   onSave,
   editing,
   lastReadPage,
+  mushaf = DEFAULT_MUSHAF,
 }: {
   open: boolean;
   onClose: () => void;
@@ -63,7 +71,12 @@ export function LogSheet({
   editing?: LogRow | null;
   /** Most recent last-page read, used to auto-advance the bookmark. */
   lastReadPage?: number | null;
+  /** The reader's mushaf — drives the page→juz/surah map and page range. */
+  mushaf?: MushafId;
 }) {
+  // An entry being edited keeps its own mushaf; otherwise use the user's.
+  const mush: MushafId = editing?.mushaf ?? mushaf;
+  const maxPage = totalPages(mush);
   const reading = isReadingType(initialType);
   const sabak = initialType === "sabak";
   const meta = ENTRY_META[initialType];
@@ -127,16 +140,16 @@ export function LogSheet({
   // Reading: resolve the entered last-page into its mushaf location, live.
   const stoppedNum = Number(stoppedAt);
   const stoppedValid =
-    /^\d+$/.test(stoppedAt) && stoppedNum >= 1 && stoppedNum <= TOTAL_PAGES;
-  const readLoc = stoppedValid ? locatePage(stoppedNum) : null;
+    /^\d+$/.test(stoppedAt) && stoppedNum >= 1 && stoppedNum <= maxPage;
+  const readLoc = stoppedValid ? locatePage(mush, stoppedNum) : null;
 
   // Auto-advance: new last page = previous bookmark + pages read.
   const readAmt = Number(pagesRead);
   const readAmtValid = pagesRead.trim() !== "" && !Number.isNaN(readAmt) && readAmt > 0;
   const autoLastPage = readAmtValid
-    ? clampPage(Math.round((lastReadPage ?? 0) + readAmt))
+    ? clampPage(mush, Math.round((lastReadPage ?? 0) + readAmt))
     : null;
-  const autoLoc = autoLastPage != null ? locatePage(autoLastPage) : null;
+  const autoLoc = autoLastPage != null ? locatePage(mush, autoLastPage) : null;
   // The location we'll actually store for this reading.
   const finalLoc = autoPage ? autoLoc : readLoc;
 
@@ -167,7 +180,7 @@ export function LogSheet({
       }
       // Manual last page is optional, but if entered it must be a real page.
       if (!autoPage && stoppedAt.trim() && !readLoc) {
-        setError(`Last page must be 1–${TOTAL_PAGES}, or leave it blank.`);
+        setError(`Last page must be 1–${maxPage}, or leave it blank.`);
         return;
       }
       const loc = autoPage ? autoLoc : readLoc;
@@ -179,6 +192,7 @@ export function LogSheet({
         unit: "page",
         juz: loc ? loc.juz : null,
         part: null,
+        mushaf: mush,
         notes: notes.trim() || null,
       });
     } else if (sabak) {
@@ -190,6 +204,7 @@ export function LogSheet({
         unit: "page",
         juz,
         part: null,
+        mushaf: null,
         notes: notes.trim() || null,
       });
     } else {
@@ -203,6 +218,7 @@ export function LogSheet({
         unit: isPages ? "page" : PORTION_UNIT[portion],
         juz,
         part: portion === "Half" || portion === "Quarter" ? part : null,
+        mushaf: null,
         notes: notes.trim() || null,
       });
     }
@@ -302,7 +318,7 @@ export function LogSheet({
                   <div className="w-44">
                     <Input
                       inputMode="numeric"
-                      placeholder="1–604"
+                      placeholder={`1–${maxPage}`}
                       value={stoppedAt}
                       onChange={(e) => onStoppedChange(e.target.value)}
                       className="text-center"
@@ -318,7 +334,7 @@ export function LogSheet({
                       </span>
                     ) : stoppedAt ? (
                       <span className="text-footnote text-faint">
-                        Enter a page from 1 to {TOTAL_PAGES}
+                        Enter a page from 1 to {maxPage}
                       </span>
                     ) : null}
                   </div>

@@ -1,4 +1,5 @@
 import type { EntryType, Unit } from "@/lib/entries";
+import type { MushafId } from "@/lib/mushaf";
 
 export type LogRow = {
   id: string;
@@ -12,6 +13,7 @@ export type LogRow = {
   juz: number | null;
   part: number | null;
   pages_equiv: number | null;
+  mushaf: MushafId | null;
   notes: string | null;
   logged_at: string;
 };
@@ -55,5 +57,6 @@ export type NewEntry = {
   unit: Unit | null;
   juz: number | null;
   part: number | null;
+  mushaf: MushafId | null;
   notes: string | null;
 };

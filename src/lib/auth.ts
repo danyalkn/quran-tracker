@@ -2,6 +2,7 @@ import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import type { Mode } from "@/lib/entries";
+import type { MushafId } from "@/lib/mushaf";
 
 export type Profile = {
   id: string;
@@ -11,6 +12,7 @@ export type Profile = {
   reminder_time: string | null;
   mode: Mode;
   notify_chat: boolean | null;
+  mushaf: MushafId | null;
   created_at: string;
 };
 
