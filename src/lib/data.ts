@@ -126,10 +126,11 @@ export async function getGroupEntries(
   return (data as LogRow[] | null) ?? [];
 }
 
-/** Recipients the user has nudged in the last 24h (for the ~1/day limit). */
+/** Recipients the user has nudged within the cooldown window (1 nudge per
+ *  recipient per 8h). Returned recipients have their Nudge button disabled. */
 export async function getMyNudgesToday(userId: string): Promise<string[]> {
   const supabase = await createClient();
-  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const since = new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString();
   const { data } = await supabase
     .from("nudges")
     .select("to_user")
