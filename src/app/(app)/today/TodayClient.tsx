@@ -140,8 +140,10 @@ export function TodayClient({
         unit: payload.unit,
         juz: payload.juz,
         part: payload.part,
-        mushaf: payload.mushaf,
         notes: payload.notes,
+        // Only set mushaf for reading entries; omitting it lets hifz logging
+        // work even before the mushaf column migration is applied.
+        ...(payload.mushaf != null ? { mushaf: payload.mushaf } : {}),
       })
       .eq("id", id)
       .select("*")
@@ -189,8 +191,10 @@ export function TodayClient({
         unit: payload.unit,
         juz: payload.juz,
         part: payload.part,
-        mushaf: payload.mushaf,
         notes: payload.notes,
+        // Only set mushaf for reading entries; omitting it lets hifz logging
+        // work even before the mushaf column migration is applied.
+        ...(payload.mushaf != null ? { mushaf: payload.mushaf } : {}),
       })
       .select("*")
       .single();
