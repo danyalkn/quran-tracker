@@ -29,6 +29,13 @@ import { Celebration, CELEBRATE_KEY } from "@/components/Celebration";
 
 type Filter = "all" | "new" | "revision";
 
+/** True when a write failed only because the mushaf column isn't in the schema
+ *  yet (migration not applied). Logging then retries without it, so a pending
+ *  migration can never block logging. */
+function isMissingMushaf(err: { message?: string } | null): boolean {
+  return !!err && /mushaf/i.test(err.message ?? "");
+}
+
 export function TodayClient({
   mode,
   tz,
@@ -129,25 +136,33 @@ export function TodayClient({
           : e,
       ),
     );
+    const base: Record<string, unknown> = {
+      entry_type: payload.entry_type,
+      from_ref: payload.from_ref,
+      to_ref: payload.to_ref,
+      amount: payload.amount,
+      unit: payload.unit,
+      juz: payload.juz,
+      part: payload.part,
+      notes: payload.notes,
+    };
     const supabase = createClient();
-    const { data, error } = await supabase
+    let res = await supabase
       .from("log_entries")
-      .update({
-        entry_type: payload.entry_type,
-        from_ref: payload.from_ref,
-        to_ref: payload.to_ref,
-        amount: payload.amount,
-        unit: payload.unit,
-        juz: payload.juz,
-        part: payload.part,
-        notes: payload.notes,
-        // Only set mushaf for reading entries; omitting it lets hifz logging
-        // work even before the mushaf column migration is applied.
-        ...(payload.mushaf != null ? { mushaf: payload.mushaf } : {}),
-      })
+      .update(payload.mushaf != null ? { ...base, mushaf: payload.mushaf } : base)
       .eq("id", id)
       .select("*")
       .single();
+    // Retry without mushaf if that column isn't in the schema yet.
+    if (isMissingMushaf(res.error) && payload.mushaf != null) {
+      res = await supabase
+        .from("log_entries")
+        .update(base)
+        .eq("id", id)
+        .select("*")
+        .single();
+    }
+    const { data, error } = res;
     if (error || !data) {
       setEntries(prev);
       setError(error?.message ?? "Couldn’t save your changes. Try again.");
@@ -178,26 +193,29 @@ export function TodayClient({
     };
     setEntries((prev) => [optimistic, ...prev]);
 
+    const base: Record<string, unknown> = {
+      user_id: userId,
+      group_id: groupId,
+      entry_type: payload.entry_type,
+      from_ref: payload.from_ref,
+      to_ref: payload.to_ref,
+      amount: payload.amount,
+      unit: payload.unit,
+      juz: payload.juz,
+      part: payload.part,
+      notes: payload.notes,
+    };
     const supabase = createClient();
-    const { data, error } = await supabase
+    let res = await supabase
       .from("log_entries")
-      .insert({
-        user_id: userId,
-        group_id: groupId,
-        entry_type: payload.entry_type,
-        from_ref: payload.from_ref,
-        to_ref: payload.to_ref,
-        amount: payload.amount,
-        unit: payload.unit,
-        juz: payload.juz,
-        part: payload.part,
-        notes: payload.notes,
-        // Only set mushaf for reading entries; omitting it lets hifz logging
-        // work even before the mushaf column migration is applied.
-        ...(payload.mushaf != null ? { mushaf: payload.mushaf } : {}),
-      })
+      .insert(payload.mushaf != null ? { ...base, mushaf: payload.mushaf } : base)
       .select("*")
       .single();
+    // Retry without mushaf if that column isn't in the schema yet.
+    if (isMissingMushaf(res.error) && payload.mushaf != null) {
+      res = await supabase.from("log_entries").insert(base).select("*").single();
+    }
+    const { data, error } = res;
 
     if (error || !data) {
       setEntries((prev) => prev.filter((e) => e.id !== tempId));
