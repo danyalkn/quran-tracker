@@ -5,7 +5,7 @@ import {
   getMyMembership,
   getGroupMembers,
   getGroupEntries,
-  getGroupReadingAllTime,
+  getGroupPagesAllTime,
 } from "@/lib/data";
 import { Placeholder } from "@/components/Placeholder";
 import { StatsClient } from "./StatsClient";
@@ -29,7 +29,7 @@ export default async function StatsPage() {
   const [members, entries, readingAll] = await Promise.all([
     getGroupMembers(membership.group_id),
     getGroupEntries(membership.group_id, 180),
-    getGroupReadingAllTime(membership.group_id),
+    getGroupPagesAllTime(membership.group_id),
   ]);
 
   return (

@@ -112,11 +112,16 @@ const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
 const pagesOf = (rows: { pages_equiv: number | null }[]) =>
   +rows.reduce((s, e) => s + (e.pages_equiv ? +e.pages_equiv : 0), 0).toFixed(1);
 
-/** Reading pages normalized to the 604-page Uthmani mushaf, so the group
- *  khatmah compares apples to apples across a mixed-mushaf circle. */
-function normReadingPages(row: ReadingRow): number {
+/** One entry's contribution to the group khatmah, in 604-page Uthmani pages.
+ *  Only raw "page" amounts depend on the reader's mushaf (a 13-line page is a
+ *  smaller slice than a 15-line one); juz/quarter/hizb are structural and
+ *  already Uthmani-equivalent via pages_equiv (×20/×5/×10). Ayahs → 0. */
+function normPages(row: ReadingRow): number {
   const p = row.pages_equiv ? +row.pages_equiv : 0;
-  return p * (KHATMAH_PAGES / totalPages(row.mushaf ?? "uthmani15"));
+  if (row.unit === "page") {
+    return p * (KHATMAH_PAGES / totalPages(row.mushaf ?? "uthmani15"));
+  }
+  return p;
 }
 
 export function StatsClient({
@@ -262,7 +267,7 @@ export function StatsClient({
   // ── Group khatmah (all-time tilawah: reading + revising) ─────────────────
   // Normalize every reader's pages to the 604-page Uthmani reference.
   const groupRead = +readingAll
-    .reduce((s, r) => s + normReadingPages(r), 0)
+    .reduce((s, r) => s + normPages(r), 0)
     .toFixed(1);
   const khatmahs = Math.floor(groupRead / KHATMAH_PAGES);
   const khatmahProgress = +(groupRead - khatmahs * KHATMAH_PAGES).toFixed(1);
@@ -285,7 +290,7 @@ export function StatsClient({
     const byDay = new Map<string, number>();
     for (const r of readingAll) {
       const d = localDate(r.logged_at, tz);
-      const p = normReadingPages(r);
+      const p = normPages(r);
       if (d < start) base += p;
       else byDay.set(d, (byDay.get(d) ?? 0) + p);
     }
@@ -638,8 +643,8 @@ export function StatsClient({
           <Card title="Pages read · all time">
             {cumulative.length === 0 ? (
               <Empty>
-                No reading logged yet. Reading and revising entries count
-                toward the group khatmah.
+                No pages logged yet. Every entry — reading, sabak, sabak para,
+                and dhor — counts toward the group khatmah.
               </Empty>
             ) : (
               <ResponsiveContainer width="100%" height={170}>

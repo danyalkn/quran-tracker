@@ -50,11 +50,13 @@ export type Reaction = {
   created_at: string;
 };
 
-/** Slim row for all-time group reading aggregates (khatmah tracker). */
+/** Slim row for all-time group page aggregates (khatmah tracker) — every
+ *  entry type counts, so `unit` is needed to normalize page amounts by mushaf. */
 export type ReadingRow = {
   user_id: string;
   logged_at: string;
   pages_equiv: number | null;
+  unit: Unit | null;
   mushaf: MushafId | null;
 };
 

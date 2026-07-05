@@ -25,16 +25,16 @@ export async function getGroupReactions(
   return (data as Reaction[] | null) ?? [];
 }
 
-/** All-time tilawah rows (reading + revising) for the group khatmah tracker. */
-export async function getGroupReadingAllTime(
+/** All-time page-bearing entries for the group khatmah — EVERY type counts
+ *  (sabak, sabak para, dhor, reading, revising), summed as Uthmani pages. */
+export async function getGroupPagesAllTime(
   groupId: string,
 ): Promise<ReadingRow[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("log_entries")
-    .select("user_id, logged_at, pages_equiv, mushaf")
+    .select("user_id, logged_at, pages_equiv, unit, mushaf")
     .eq("group_id", groupId)
-    .in("entry_type", ["reading", "revising"])
     .order("logged_at", { ascending: true })
     // Cap is a safety valve; a 5-person group is ~2.7 years from hitting it.
     .limit(10000);
