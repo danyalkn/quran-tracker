@@ -1,7 +1,12 @@
 import { redirect } from "next/navigation";
 import { ChartColumnBig } from "lucide-react";
 import { getAuth, isOnboarded } from "@/lib/auth";
-import { getMyMembership, getGroupMembers, getGroupEntries } from "@/lib/data";
+import {
+  getMyMembership,
+  getGroupMembers,
+  getGroupEntries,
+  getGroupReadingAllTime,
+} from "@/lib/data";
 import { Placeholder } from "@/components/Placeholder";
 import { StatsClient } from "./StatsClient";
 
@@ -21,9 +26,10 @@ export default async function StatsPage() {
     );
   }
 
-  const [members, entries] = await Promise.all([
+  const [members, entries, readingAll] = await Promise.all([
     getGroupMembers(membership.group_id),
     getGroupEntries(membership.group_id, 180),
+    getGroupReadingAllTime(membership.group_id),
   ]);
 
   return (
@@ -31,8 +37,9 @@ export default async function StatsPage() {
       mode={profile.mode}
       tz={profile.timezone}
       userId={user.id}
-      memberCount={members.length}
+      members={members}
       entries={entries}
+      readingAll={readingAll}
     />
   );
 }

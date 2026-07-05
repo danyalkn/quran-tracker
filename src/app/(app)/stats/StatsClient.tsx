@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ResponsiveContainer,
+  AreaChart,
+  Area,
   BarChart,
   Bar,
   PieChart,
@@ -13,9 +15,22 @@ import {
   CartesianGrid,
   Tooltip,
 } from "recharts";
-import { TrendingUp } from "lucide-react";
+import {
+  TrendingUp,
+  TrendingDown,
+  Minus,
+  Trophy,
+  Users,
+  BookMarked,
+  Hourglass,
+  Flag,
+  CalendarCheck,
+  UtensilsCrossed,
+  type LucideIcon,
+} from "lucide-react";
 import { type Mode } from "@/lib/entries";
-import type { LogRow } from "@/lib/types";
+import { totalPages, pageFromRef } from "@/lib/mushaf";
+import type { GroupMember, LogRow, ReadingRow } from "@/lib/types";
 import {
   localDate,
   todayLocal,
@@ -29,6 +44,9 @@ import { cn } from "@/lib/cn";
 
 type Scope = "mine" | "group";
 type Filter = "all" | "sabak" | "revision";
+
+// The group khatmah is measured against the standard Uthmani mushaf.
+const KHATMAH_PAGES = totalPages("uthmani15"); // 604
 
 /** Recharts paints via SVG attributes, which don't resolve CSS variables — so
  *  read the resolved token values and re-read when the color scheme flips. */
@@ -53,7 +71,15 @@ function useChartColors() {
     read();
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
     mq.addEventListener("change", read);
-    return () => mq.removeEventListener("change", read);
+    const obs = new MutationObserver(read);
+    obs.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
+    return () => {
+      mq.removeEventListener("change", read);
+      obs.disconnect();
+    };
   }, []);
   return c;
 }
@@ -83,22 +109,37 @@ function TooltipCard({
 
 const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
 
+const pagesOf = (rows: { pages_equiv: number | null }[]) =>
+  +rows.reduce((s, e) => s + (e.pages_equiv ? +e.pages_equiv : 0), 0).toFixed(1);
+
+/** Reading pages normalized to the 604-page Uthmani mushaf, so the group
+ *  khatmah compares apples to apples across a mixed-mushaf circle. */
+function normReadingPages(row: ReadingRow): number {
+  const p = row.pages_equiv ? +row.pages_equiv : 0;
+  return p * (KHATMAH_PAGES / totalPages(row.mushaf ?? "uthmani15"));
+}
+
 export function StatsClient({
   mode,
   tz,
   userId,
-  memberCount,
+  members,
   entries,
+  readingAll,
+  initialScope = "mine",
 }: {
   mode: Mode;
   tz: string;
   userId: string;
-  memberCount: number;
+  members: GroupMember[];
   entries: LogRow[];
+  readingAll: ReadingRow[];
+  initialScope?: Scope;
 }) {
   const reading = mode === "reading";
+  const memberCount = members.length;
   const [filter, setFilter] = useState<Filter>("all");
-  const [scope, setScope] = useState<Scope>("mine");
+  const [scope, setScope] = useState<Scope>(initialScope);
   const colors = useChartColors();
 
   const today = todayLocal(tz);
@@ -111,13 +152,15 @@ export function StatsClient({
   // Readers have one category. Memorizers filter by All / Sabak / Revision —
   // reading entries only appear under All (never counted as "new memorization").
   const chartEntries = useMemo(() => {
-    if (reading || filter === "all") return scoped;
+    // The Sabak/Revision filter only exists in personal hifz view; never let a
+    // stale value silently filter the group heatmap.
+    if (reading || scope === "group" || filter === "all") return scoped;
     if (filter === "sabak")
       return scoped.filter((e) => e.entry_type === "sabak");
     return scoped.filter(
       (e) => e.entry_type === "sabak_para" || e.entry_type === "dor",
     );
-  }, [scoped, filter, reading]);
+  }, [scoped, filter, reading, scope]);
 
   // Streak from the user's own entries.
   const mineDays = useMemo(
@@ -152,19 +195,42 @@ export function StatsClient({
   }, [chartEntries, tz]);
   const [activeCell, setActiveCell] = useState<number | null>(null);
 
-  // Pages read per day, last 14 days (bar chart).
+  // Pages read per day, last 14 days (mine scope).
   const pagesBar = useMemo(() => {
     const days = lastNDays(tz, 14);
     return days.map((d) => ({
       label: new Date(`${d}T12:00:00`).getDate().toString(),
       full: shortDate(d),
-      pages: +chartEntries
-        .filter((e) => localDate(e.logged_at, tz) === d)
-        .reduce((s, e) => s + (e.pages_equiv ? +e.pages_equiv : 0), 0)
-        .toFixed(2),
+      pages: pagesOf(
+        chartEntries.filter((e) => localDate(e.logged_at, tz) === d),
+      ),
     }));
   }, [chartEntries, tz]);
-  const totalPages = +pagesBar.reduce((s, b) => s + b.pages, 0).toFixed(1);
+  const totalPages14 = +pagesBar.reduce((s, b) => s + b.pages, 0).toFixed(1);
+
+  // Weekly trend: pages per rolling 7-day bucket, last 8 weeks (mine scope).
+  const weeklyBar = useMemo(() => {
+    const days = lastNDays(tz, 56);
+    const byDay = new Map<string, number>();
+    for (const e of chartEntries) {
+      const d = localDate(e.logged_at, tz);
+      byDay.set(d, (byDay.get(d) ?? 0) + (e.pages_equiv ? +e.pages_equiv : 0));
+    }
+    const out: { label: string; full: string; pages: number }[] = [];
+    for (let w = 0; w < 8; w++) {
+      const chunk = days.slice(w * 7, w * 7 + 7);
+      const pages = +chunk
+        .reduce((s, d) => s + (byDay.get(d) ?? 0), 0)
+        .toFixed(1);
+      out.push({
+        label: shortDate(chunk[0]),
+        full: `${shortDate(chunk[0])} – ${shortDate(chunk[6])}`,
+        pages,
+      });
+    }
+    return out;
+  }, [chartEntries, tz]);
+  const weeklyTotal = +weeklyBar.reduce((s, w) => s + w.pages, 0).toFixed(1);
 
   // Donut (hifz only): Sabak vs Revision (memorization only — excludes reading).
   const sabakCount = scoped.filter((e) => e.entry_type === "sabak").length;
@@ -191,9 +257,226 @@ export function StatsClient({
 
   // Lifetime (within loaded window) totals for the current scope.
   const totalEntriesAll = scoped.length;
-  const totalPagesAll = +scoped
-    .reduce((s, e) => s + (e.pages_equiv ? +e.pages_equiv : 0), 0)
+  const totalPagesAll = pagesOf(scoped);
+
+  // ── Group khatmah (all-time tilawah: reading + revising) ─────────────────
+  // Normalize every reader's pages to the 604-page Uthmani reference.
+  const groupRead = +readingAll
+    .reduce((s, r) => s + normReadingPages(r), 0)
     .toFixed(1);
+  const khatmahs = Math.floor(groupRead / KHATMAH_PAGES);
+  const khatmahProgress = +(groupRead - khatmahs * KHATMAH_PAGES).toFixed(1);
+  const khatmahPct = Math.min(100, (khatmahProgress / KHATMAH_PAGES) * 100);
+
+  // Cumulative group pages, weekly buckets (up to the last 26 weeks).
+  const cumulative = useMemo(() => {
+    if (readingAll.length === 0) return [] as { label: string; cum: number }[];
+    const first = localDate(readingAll[0].logged_at, tz);
+    const daysSince =
+      Math.floor(
+        (new Date(`${today}T12:00:00`).getTime() -
+          new Date(`${first}T12:00:00`).getTime()) /
+          86400000,
+      ) + 1;
+    const weeks = Math.max(2, Math.min(26, Math.ceil(daysSince / 7)));
+    const days = lastNDays(tz, weeks * 7);
+    const start = days[0];
+    let base = 0;
+    const byDay = new Map<string, number>();
+    for (const r of readingAll) {
+      const d = localDate(r.logged_at, tz);
+      const p = normReadingPages(r);
+      if (d < start) base += p;
+      else byDay.set(d, (byDay.get(d) ?? 0) + p);
+    }
+    let cum = base;
+    const out: { label: string; cum: number }[] = [];
+    for (let w = 0; w < weeks; w++) {
+      const chunk = days.slice(w * 7, w * 7 + 7);
+      cum += chunk.reduce((s, d) => s + (byDay.get(d) ?? 0), 0);
+      out.push({ label: shortDate(chunk[6]), cum: +cum.toFixed(1) });
+    }
+    return out;
+  }, [readingAll, tz, today]);
+
+  // ── Insights ──────────────────────────────────────────────────────────────
+  const insights = useMemo(() => {
+    const week = new Set(lastNDays(tz, 7));
+    const prevWeek = new Set(lastNDays(tz, 14).slice(0, 7));
+    const out: {
+      icon: LucideIcon;
+      text: React.ReactNode;
+      delta?: number | null;
+    }[] = [];
+
+    const pagesIn = (rows: LogRow[], days: Set<string>) =>
+      pagesOf(rows.filter((e) => days.has(localDate(e.logged_at, tz))));
+
+    if (scope === "mine") {
+      const minRows = entries.filter((e) => e.user_id === userId);
+      const thisW = pagesIn(minRows, week);
+      const lastW = pagesIn(minRows, prevWeek);
+      out.push({
+        icon: thisW >= lastW ? TrendingUp : TrendingDown,
+        text: (
+          <>
+            <b>{thisW}</b> pages this week{" "}
+            <span className="text-faint">· {lastW} last week</span>
+          </>
+        ),
+        delta: lastW > 0 ? (thisW - lastW) / lastW : thisW > 0 ? 1 : null,
+      });
+
+      const active14 = lastNDays(tz, 14).filter((d) => mineDays.has(d)).length;
+      out.push({
+        icon: CalendarCheck,
+        text: (
+          <>
+            Logged on <b>{active14}</b> of the last 14 days
+          </>
+        ),
+      });
+
+      // Most revised juz (structured logging).
+      const revRows = minRows.filter(
+        (e) =>
+          (e.entry_type === "sabak_para" || e.entry_type === "dor") &&
+          e.juz != null,
+      );
+      if (revRows.length > 0) {
+        const byJuz = new Map<number, number>();
+        for (const e of revRows) byJuz.set(e.juz!, (byJuz.get(e.juz!) ?? 0) + 1);
+        const [topJuz, topN] = [...byJuz.entries()].sort(
+          (a, b) => b[1] - a[1],
+        )[0];
+        out.push({
+          icon: BookMarked,
+          text: (
+            <>
+              Most revised: <b>Juz {topJuz}</b>{" "}
+              <span className="text-faint">· {topN}×</span>
+            </>
+          ),
+        });
+
+        // Longest-untouched juz you do revise.
+        if (byJuz.size > 1) {
+          const lastSeen = new Map<number, string>();
+          for (const e of revRows) {
+            const d = localDate(e.logged_at, tz);
+            const cur = lastSeen.get(e.juz!);
+            if (!cur || d > cur) lastSeen.set(e.juz!, d);
+          }
+          const [staleJuz, staleDate] = [...lastSeen.entries()].sort((a, b) =>
+            a[1] < b[1] ? -1 : 1,
+          )[0];
+          const staleDays = Math.floor(
+            (new Date(`${today}T12:00:00`).getTime() -
+              new Date(`${staleDate}T12:00:00`).getTime()) /
+              86400000,
+          );
+          if (staleDays >= 10) {
+            out.push({
+              icon: Hourglass,
+              text: (
+                <>
+                  <b>Juz {staleJuz}</b> hasn’t been revised in{" "}
+                  <b>{staleDays}</b> days
+                </>
+              ),
+            });
+          }
+        }
+      }
+
+      // Reading pace → khatmah ETA from the latest bookmark.
+      const lastRead = minRows.find(
+        (e) =>
+          (e.entry_type === "reading" || e.entry_type === "revising") &&
+          e.to_ref,
+      );
+      const page = pageFromRef(lastRead?.to_ref);
+      if (lastRead && page) {
+        const total = totalPages(lastRead.mushaf ?? "uthmani15");
+        const last14 = new Set(lastNDays(tz, 14));
+        const pace =
+          pagesIn(
+            minRows.filter(
+              (e) =>
+                e.entry_type === "reading" || e.entry_type === "revising",
+            ),
+            last14,
+          ) / 14;
+        const left = total - page;
+        if (pace > 0 && left > 0) {
+          out.push({
+            icon: Flag,
+            text: (
+              <>
+                On page <b>{page}</b> — about <b>{Math.ceil(left / pace)}</b>{" "}
+                days to finish at your pace
+              </>
+            ),
+          });
+        }
+      }
+    } else {
+      const activeMembers = new Set(
+        entries
+          .filter((e) => week.has(localDate(e.logged_at, tz)))
+          .map((e) => e.user_id),
+      ).size;
+      out.push({
+        icon: Users,
+        text: (
+          <>
+            <b>{activeMembers}</b> of <b>{memberCount}</b> logged this week
+          </>
+        ),
+      });
+
+      const thisW = pagesIn(entries, week);
+      const lastW = pagesIn(entries, prevWeek);
+      out.push({
+        icon: thisW >= lastW ? TrendingUp : TrendingDown,
+        text: (
+          <>
+            <b>{thisW}</b> group pages this week{" "}
+            <span className="text-faint">· {lastW} last week</span>
+          </>
+        ),
+        delta: lastW > 0 ? (thisW - lastW) / lastW : thisW > 0 ? 1 : null,
+      });
+
+      // Top contributor this week.
+      const byUser = new Map<string, number>();
+      for (const e of entries) {
+        if (!week.has(localDate(e.logged_at, tz))) continue;
+        byUser.set(
+          e.user_id,
+          (byUser.get(e.user_id) ?? 0) + (e.pages_equiv ? +e.pages_equiv : 0),
+        );
+      }
+      const top = [...byUser.entries()].sort((a, b) => b[1] - a[1])[0];
+      if (top && top[1] > 0) {
+        const name =
+          top[0] === userId
+            ? "You"
+            : (members.find((m) => m.user_id === top[0])?.display_name ??
+              "Someone");
+        out.push({
+          icon: Trophy,
+          text: (
+            <>
+              Most pages this week: <b>{name}</b>{" "}
+              <span className="text-faint">· {+top[1].toFixed(1)} pages</span>
+            </>
+          ),
+        });
+      }
+    }
+    return out;
+  }, [scope, entries, userId, tz, today, mineDays, members, memberCount]);
 
   return (
     <div className="flex h-full flex-col overflow-y-auto pb-8">
@@ -202,8 +485,8 @@ export function StatsClient({
       </header>
 
       <div className="space-y-4 px-5">
-        {/* All / Sabak / Revision toggle — hifz only */}
-        {!reading && (
+        {/* All / Sabak / Revision toggle — hifz, personal scope only */}
+        {!reading && scope === "mine" && (
           <div className="flex rounded-xl bg-surface-2 p-1 text-subhead">
             {(
               [
@@ -252,7 +535,7 @@ export function StatsClient({
 
         {/* Stat cards */}
         <div className="grid grid-cols-2 gap-3">
-          {reading && (
+          {reading && scope === "mine" && (
             <>
               <StatCard
                 label="Total entries"
@@ -282,6 +565,128 @@ export function StatsClient({
             </>
           )}
         </div>
+
+        {/* ── GROUP: khatmah tracker ── */}
+        {scope === "group" && (
+          <div className="rounded-2xl bg-surface p-4 shadow-e1">
+            <div className="flex items-start justify-between">
+              <p className="text-callout font-semibold">Group khatmah</p>
+              <span className="text-caption text-faint">
+                Uthmani · {KHATMAH_PAGES} pages
+              </span>
+            </div>
+            <div className="mt-3 flex items-baseline gap-2">
+              <span className="text-display tabular-nums">{groupRead}</span>
+              <span className="text-callout text-muted">pages read together</span>
+            </div>
+
+            {/* Progress to the next completion */}
+            <div className="mt-4">
+              <div className="flex items-baseline justify-between text-footnote">
+                <span className="font-medium text-muted">
+                  Khatmah #{khatmahs + 1}
+                </span>
+                <span className="tabular-nums text-faint">
+                  {khatmahProgress} / {KHATMAH_PAGES}
+                </span>
+              </div>
+              <div className="mt-1.5 h-2.5 overflow-hidden rounded-full bg-surface-2">
+                <div
+                  className="h-full rounded-full bg-accent transition-[width] duration-700"
+                  style={{ width: `${khatmahPct}%` }}
+                />
+              </div>
+              <p className="mt-1.5 text-footnote text-faint">
+                {+(KHATMAH_PAGES - khatmahProgress).toFixed(1)} pages to go
+              </p>
+            </div>
+
+            {khatmahs > 0 && (
+              <div className="mt-3 flex items-center gap-2 rounded-xl bg-accent-tint px-3 py-2.5 text-accent">
+                <UtensilsCrossed className="size-4 shrink-0" />
+                <p className="text-footnote font-medium">
+                  {khatmahs} {khatmahs === 1 ? "khatmah" : "khatmahs"} completed
+                  — {khatmahs === 1 ? "a dawat is" : `${khatmahs} dawats are`}{" "}
+                  owed 🎉
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Insights */}
+        {insights.length > 0 && (
+          <Card title="Trends & insights">
+            <div className="space-y-3">
+              {insights.map((ins, i) => (
+                <div key={i} className="flex items-center gap-3">
+                  <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-surface-2 text-muted">
+                    <ins.icon className="size-4.5" />
+                  </span>
+                  <p className="min-w-0 flex-1 text-subhead text-foreground [&_b]:font-semibold">
+                    {ins.text}
+                  </p>
+                  {ins.delta != null && <DeltaBadge value={ins.delta} />}
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+
+        {/* ── GROUP: cumulative pages ── */}
+        {scope === "group" && (
+          <Card title="Pages read · all time">
+            {cumulative.length === 0 ? (
+              <Empty>
+                No reading logged yet. Reading and revising entries count
+                toward the group khatmah.
+              </Empty>
+            ) : (
+              <ResponsiveContainer width="100%" height={170}>
+                <AreaChart
+                  data={cumulative}
+                  margin={{ top: 8, right: 4, bottom: 0, left: 0 }}
+                >
+                  <CartesianGrid vertical={false} stroke={colors.grid} />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fill: colors.tick, fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={false}
+                    interval="preserveStartEnd"
+                    minTickGap={40}
+                  />
+                  <YAxis
+                    tick={{ fill: colors.tick, fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={false}
+                    width={38}
+                  />
+                  <Tooltip
+                    cursor={{ stroke: colors.grid }}
+                    content={({ active, payload }) => (
+                      <TooltipCard
+                        active={active}
+                        label={`Week of ${payload?.[0]?.payload?.label}`}
+                        value={payload?.[0]?.value as number}
+                        suffix="pages"
+                      />
+                    )}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="cum"
+                    isAnimationActive={false}
+                    stroke={colors.accent}
+                    strokeWidth={2.25}
+                    fill={colors.accent}
+                    fillOpacity={0.12}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
+          </Card>
+        )}
 
         {/* Entries heatmap */}
         <Card title="Entries · last 5 weeks">
@@ -336,66 +741,118 @@ export function StatsClient({
           )}
         </Card>
 
-        {/* Pages read bar */}
-        <Card title="Pages read · last 14 days">
-          {totalPages === 0 ? (
-            <Empty>
-              No pages logged in this view. Add an amount when you log to track
-              pages.
-            </Empty>
-          ) : (
-            <>
-              <div className="mb-2 flex items-baseline gap-2">
-                <span className="text-title2 tabular-nums">{totalPages}</span>
-                <span className="text-footnote text-muted">
-                  pages · ≈ {Math.round(totalPages / 20)} juz
-                </span>
-              </div>
-              <ResponsiveContainer width="100%" height={170}>
-                <BarChart
-                  data={pagesBar}
-                  margin={{ top: 8, right: 4, bottom: 0, left: -24 }}
-                >
-                  <CartesianGrid vertical={false} stroke={colors.grid} />
-                  <XAxis
-                    dataKey="label"
-                    tick={{ fill: colors.tick, fontSize: 11 }}
-                    tickLine={false}
-                    axisLine={false}
-                    interval={1}
-                  />
-                  <YAxis
-                    tick={{ fill: colors.tick, fontSize: 11 }}
-                    tickLine={false}
-                    axisLine={false}
-                    width={32}
-                  />
-                  <Tooltip
-                    cursor={{ fill: colors.surface2 }}
-                    content={({ active, payload }) => (
-                      <TooltipCard
-                        active={active}
-                        label={payload?.[0]?.payload?.full}
-                        value={payload?.[0]?.value as number}
-                        suffix="pages"
+        {/* ── MINE: daily pages + weekly trend ── */}
+        {scope === "mine" && (
+          <>
+            <Card title="Pages read · last 14 days">
+              {totalPages14 === 0 ? (
+                <Empty>
+                  No pages logged in this view. Add an amount when you log to
+                  track pages.
+                </Empty>
+              ) : (
+                <>
+                  <div className="mb-2 flex items-baseline gap-2">
+                    <span className="text-title2 tabular-nums">
+                      {totalPages14}
+                    </span>
+                    <span className="text-footnote text-muted">
+                      pages · ≈ {Math.round(totalPages14 / 20)} juz
+                    </span>
+                  </div>
+                  <ResponsiveContainer width="100%" height={170}>
+                    <BarChart
+                      data={pagesBar}
+                      margin={{ top: 8, right: 4, bottom: 0, left: -24 }}
+                    >
+                      <CartesianGrid vertical={false} stroke={colors.grid} />
+                      <XAxis
+                        dataKey="label"
+                        tick={{ fill: colors.tick, fontSize: 11 }}
+                        tickLine={false}
+                        axisLine={false}
+                        interval={1}
                       />
-                    )}
-                  />
-                  <Bar
-                    dataKey="pages"
-                    isAnimationActive={false}
-                    fill={colors.accent}
-                    radius={[6, 6, 0, 0]}
-                    maxBarSize={18}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            </>
-          )}
-        </Card>
+                      <YAxis
+                        tick={{ fill: colors.tick, fontSize: 11 }}
+                        tickLine={false}
+                        axisLine={false}
+                        width={32}
+                      />
+                      <Tooltip
+                        cursor={{ fill: colors.surface2 }}
+                        content={({ active, payload }) => (
+                          <TooltipCard
+                            active={active}
+                            label={payload?.[0]?.payload?.full}
+                            value={payload?.[0]?.value as number}
+                            suffix="pages"
+                          />
+                        )}
+                      />
+                      <Bar
+                        dataKey="pages"
+                        isAnimationActive={false}
+                        fill={colors.accent}
+                        radius={[6, 6, 0, 0]}
+                        maxBarSize={18}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </>
+              )}
+            </Card>
 
-        {/* New vs Revision donut — hifz only */}
-        {!reading && (
+            <Card title="Weekly pages · last 8 weeks">
+              {weeklyTotal === 0 ? (
+                <Empty>Log a few weeks of pages to see your trend here.</Empty>
+              ) : (
+                <ResponsiveContainer width="100%" height={150}>
+                  <BarChart
+                    data={weeklyBar}
+                    margin={{ top: 8, right: 4, bottom: 0, left: -24 }}
+                  >
+                    <CartesianGrid vertical={false} stroke={colors.grid} />
+                    <XAxis
+                      dataKey="label"
+                      tick={{ fill: colors.tick, fontSize: 10 }}
+                      tickLine={false}
+                      axisLine={false}
+                      interval={1}
+                    />
+                    <YAxis
+                      tick={{ fill: colors.tick, fontSize: 11 }}
+                      tickLine={false}
+                      axisLine={false}
+                      width={32}
+                    />
+                    <Tooltip
+                      cursor={{ fill: colors.surface2 }}
+                      content={({ active, payload }) => (
+                        <TooltipCard
+                          active={active}
+                          label={payload?.[0]?.payload?.full}
+                          value={payload?.[0]?.value as number}
+                          suffix="pages"
+                        />
+                      )}
+                    />
+                    <Bar
+                      dataKey="pages"
+                      isAnimationActive={false}
+                      fill={colors.accent}
+                      radius={[6, 6, 0, 0]}
+                      maxBarSize={26}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </Card>
+          </>
+        )}
+
+        {/* New vs Revision donut — hifz, personal scope */}
+        {!reading && scope === "mine" && (
           <Card title="Sabak vs Revision">
             {pieTotal === 0 ? (
               <Empty>No memorization logged yet.</Empty>
@@ -441,6 +898,34 @@ export function StatsClient({
         )}
       </div>
     </div>
+  );
+}
+
+/** ▲ 12% / ▼ 8% / — steady. Icon + number together, never color alone. */
+function DeltaBadge({ value }: { value: number }) {
+  const pct = Math.round(Math.abs(value) * 100);
+  if (pct === 0) {
+    return (
+      <span className="flex shrink-0 items-center gap-1 rounded-full bg-surface-2 px-2 py-0.5 text-caption font-medium text-muted">
+        <Minus className="size-3" /> steady
+      </span>
+    );
+  }
+  const up = value > 0;
+  return (
+    <span
+      className={cn(
+        "flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-caption font-semibold tabular-nums",
+        up ? "bg-accent-tint text-accent" : "bg-danger-tint text-danger",
+      )}
+    >
+      {up ? (
+        <TrendingUp className="size-3" />
+      ) : (
+        <TrendingDown className="size-3" />
+      )}
+      {pct > 999 ? ">999" : pct}%
+    </span>
   );
 }
 

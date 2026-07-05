@@ -36,7 +36,26 @@ export type Message = {
   user_id: string;
   body: string;
   mentions: string[];
+  reply_to: string | null;
   created_at: string;
+};
+
+/** One reaction per user per message (IG semantics — new emoji replaces old). */
+export type Reaction = {
+  id: string;
+  message_id: string;
+  group_id: string;
+  user_id: string;
+  emoji: string;
+  created_at: string;
+};
+
+/** Slim row for all-time group reading aggregates (khatmah tracker). */
+export type ReadingRow = {
+  user_id: string;
+  logged_at: string;
+  pages_equiv: number | null;
+  mushaf: MushafId | null;
 };
 
 export type Reminder = {

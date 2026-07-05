@@ -1,9 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Search, Send, UserPlus, Users } from "lucide-react";
+import { createPortal } from "react-dom";
+import {
+  Copy,
+  Reply,
+  Search,
+  Send,
+  UserPlus,
+  Users,
+  X,
+} from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import type { GroupMember, Message } from "@/lib/types";
+import type { GroupMember, Message, Reaction } from "@/lib/types";
 import { chatStamp, timeLabel } from "@/lib/dates";
 import { cn } from "@/lib/cn";
 import { Avatar } from "@/components/ui/Avatar";
@@ -14,8 +23,18 @@ import { useSwipeDownDismiss } from "@/lib/useSwipeDownDismiss";
 // one (within the hour, consecutive messages share the last separator).
 const GAP_MS = 60 * 60 * 1000;
 
+// IG's quick-reaction set, in IG's order.
+const QUICK_EMOJI = ["❤️", "😂", "😮", "😢", "😡", "👍"];
+
+const LONG_PRESS_MS = 420;
+const SWIPE_REPLY_TRIGGER = 52;
+
 function escapeRe(s: string) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function firstName(name: string | undefined | null): string {
+  return (name ?? "Member").split(/\s+/)[0];
 }
 
 /** Render a message body, highlighting @mentions of known members. */
@@ -53,6 +72,130 @@ function MessageBody({
   return <>{out}</>;
 }
 
+type Anchor = {
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+};
+
+/** Floating long-press overlay: IG-style emoji bar above the message and a
+ *  Reply / Copy menu below it. Exported for visual previews. */
+export function ActionOverlay({
+  anchor,
+  mine,
+  myEmoji,
+  onReact,
+  onReply,
+  onCopy,
+  onClose,
+}: {
+  anchor: Anchor;
+  mine: boolean;
+  myEmoji: string | null;
+  onReact: (emoji: string) => void;
+  onReply: () => void;
+  onCopy: () => void;
+  onClose: () => void;
+}) {
+  const PILL_W = 272;
+  const MENU_W = 168;
+  // Portal-only component — never render during SSR.
+  if (typeof document === "undefined") return null;
+  const vw = window.innerWidth;
+  const clampX = (x: number, w: number) => Math.min(Math.max(x, 8), vw - w - 8);
+  const pillLeft = clampX(mine ? anchor.right - PILL_W : anchor.left, PILL_W);
+  const menuLeft = clampX(mine ? anchor.right - MENU_W : anchor.left, MENU_W);
+  const roomAbove = anchor.top - 64 >= 12;
+  const pillTop = roomAbove ? anchor.top - 60 : anchor.bottom + 10;
+  const menuTop = roomAbove ? anchor.bottom + 10 : pillTop + 56;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[70]">
+      <div className="absolute inset-0 bg-black/25" onClick={onClose} />
+
+      {/* Quick reactions */}
+      <div
+        className="absolute flex items-center gap-1 rounded-full bg-surface p-1.5 shadow-e3 animate-[dialIn_170ms_var(--ease-spring)_both]"
+        style={{ top: pillTop, left: pillLeft, width: PILL_W }}
+      >
+        {QUICK_EMOJI.map((e) => (
+          <button
+            key={e}
+            onClick={() => onReact(e)}
+            aria-label={`React ${e}`}
+            className={cn(
+              "grid size-[40px] place-items-center rounded-full text-[24px] leading-none transition active:scale-125",
+              myEmoji === e && "bg-accent-tint",
+            )}
+          >
+            {e}
+          </button>
+        ))}
+      </div>
+
+      {/* Actions */}
+      <div
+        className="absolute overflow-hidden rounded-2xl bg-surface shadow-e3 animate-[dialIn_190ms_var(--ease-spring)_both]"
+        style={{ top: menuTop, left: menuLeft, width: MENU_W }}
+      >
+        <button
+          onClick={onReply}
+          className="flex w-full items-center justify-between px-4 py-3 text-callout font-medium"
+        >
+          Reply <Reply className="size-4.5 text-muted" />
+        </button>
+        <div className="h-px bg-border" />
+        <button
+          onClick={onCopy}
+          className="flex w-full items-center justify-between px-4 py-3 text-callout font-medium"
+        >
+          Copy <Copy className="size-4.5 text-muted" />
+        </button>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+/** Grouped reaction chip hugging the bubble's bottom corner (IG style). */
+export function ReactionChips({
+  reactions,
+  mine,
+  onOpen,
+}: {
+  reactions: Reaction[];
+  mine: boolean;
+  onOpen: () => void;
+}) {
+  if (reactions.length === 0) return null;
+  const emojis: string[] = [];
+  for (const r of reactions) {
+    if (!emojis.includes(r.emoji)) emojis.push(r.emoji);
+    if (emojis.length === 3) break;
+  }
+  return (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        onOpen();
+      }}
+      className={cn(
+        "absolute -bottom-3.5 z-10 flex items-center rounded-full bg-surface px-1.5 py-0.5 shadow-e1 ring-1 ring-border animate-[dialIn_170ms_var(--ease-spring)_both]",
+        mine ? "right-1" : "left-1",
+      )}
+      aria-label="See who reacted"
+    >
+      <span className="text-[13px] leading-[18px]">{emojis.join("")}</span>
+      {reactions.length > 1 && (
+        <span className="ml-0.5 text-caption tabular-nums text-muted">
+          {reactions.length}
+        </span>
+      )}
+    </button>
+  );
+}
+
 type SearchUser = {
   id: string;
   display_name: string;
@@ -68,6 +211,7 @@ export function ChatClient({
   userId,
   members: initialMembers,
   initialMessages,
+  initialReactions,
   initialNotifyChat,
   isOwner,
 }: {
@@ -77,28 +221,50 @@ export function ChatClient({
   userId: string;
   members: GroupMember[];
   initialMessages: Message[];
+  initialReactions: Reaction[];
   initialNotifyChat: boolean;
   isOwner: boolean;
 }) {
   const [members, setMembers] = useState<GroupMember[]>(initialMembers);
   const [messages, setMessages] = useState<Message[]>(initialMessages);
+  const [reactions, setReactions] = useState<Reaction[]>(initialReactions);
   const [draft, setDraft] = useState("");
+  const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [mentionQuery, setMentionQuery] = useState<{
     q: string;
     start: number;
   } | null>(null);
   const [activeIdx, setActiveIdx] = useState(0);
 
+  // Long-press / context-menu action overlay.
+  const [action, setAction] = useState<{ msg: Message; anchor: Anchor } | null>(
+    null,
+  );
+  // "Who reacted" sheet.
+  const [reactorsFor, setReactorsFor] = useState<string | null>(null);
+  // Briefly highlight a message after jumping to it from a reply quote.
+  const [flashId, setFlashId] = useState<string | null>(null);
+
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
   const caretToSet = useRef<number | null>(null);
+  const rowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastTap = useRef<{ mid: string; t: number } | null>(null);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Swipe-left-to-reveal message times (iMessage-style).
+  // Swipe-left reveals times (iMessage); swipe-right on a message replies (IG).
   const [revealX, setRevealX] = useState(0);
-  const drag = useRef<{ x: number; y: number; axis: null | "x" | "y" } | null>(
+  const [swipeReply, setSwipeReply] = useState<{ mid: string; x: number } | null>(
     null,
   );
+  const drag = useRef<{
+    x: number;
+    y: number;
+    axis: null | "x" | "y";
+    mid: string | null;
+  } | null>(null);
 
   const [showMembers, setShowMembers] = useState(false);
   const [notifyChat, setNotifyChat] = useState(initialNotifyChat);
@@ -178,6 +344,19 @@ export function ChatClient({
     () => members.map((m) => m.display_name),
     [members],
   );
+  const messageMap = useMemo(
+    () => new Map(messages.map((m) => [m.id, m])),
+    [messages],
+  );
+  const reactionsByMsg = useMemo(() => {
+    const map = new Map<string, Reaction[]>();
+    for (const r of reactions) {
+      (map.get(r.message_id) ?? map.set(r.message_id, []).get(r.message_id)!).push(
+        r,
+      );
+    }
+    return map;
+  }, [reactions]);
 
   const scrollToBottom = useCallback((smooth = false) => {
     const el = scrollerRef.current;
@@ -225,12 +404,39 @@ export function ChatClient({
     });
   }, [groupId]);
 
-  // Realtime: append others' new messages (our own are handled on send). On
-  // every (re)subscribe we resync to backfill anything missed while down.
+  // Same healing pattern for reactions: refetch and merge, keeping in-flight
+  // optimistic rows that haven't landed server-side yet.
+  const syncReactions = useCallback(async () => {
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("message_reactions")
+      .select("*")
+      .eq("group_id", groupId)
+      .order("created_at", { ascending: true })
+      .limit(1000);
+    const server = (data as Reaction[] | null) ?? [];
+    setReactions((prev) => {
+      const next = [...server];
+      for (const r of prev) {
+        if (
+          r.id.startsWith("temp-") &&
+          !next.some(
+            (s) => s.message_id === r.message_id && s.user_id === r.user_id,
+          )
+        ) {
+          next.push(r);
+        }
+      }
+      return next;
+    });
+  }, [groupId]);
+
+  // Realtime: messages + reactions. On every (re)subscribe we resync to
+  // backfill anything missed while the socket was down.
   useEffect(() => {
     const supabase = createClient();
     const channel = supabase
-      .channel(`messages-${groupId}`)
+      .channel(`chat-${groupId}`)
       .on(
         "postgres_changes",
         {
@@ -247,19 +453,60 @@ export function ChatClient({
           );
         },
       )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "message_reactions",
+          filter: `group_id=eq.${groupId}`,
+        },
+        (payload) => {
+          if (payload.eventType === "DELETE") {
+            const old = payload.old as Partial<Reaction>;
+            setReactions((prev) =>
+              prev.filter(
+                (r) =>
+                  r.id !== old.id &&
+                  !(
+                    old.message_id &&
+                    r.message_id === old.message_id &&
+                    r.user_id === old.user_id
+                  ),
+              ),
+            );
+            return;
+          }
+          const row = payload.new as Reaction;
+          if (row.user_id === userId) return; // ours are optimistic
+          setReactions((prev) => [
+            ...prev.filter(
+              (r) =>
+                !(r.message_id === row.message_id && r.user_id === row.user_id),
+            ),
+            row,
+          ]);
+        },
+      )
       .subscribe((status) => {
-        if (status === "SUBSCRIBED") syncMessages();
+        if (status === "SUBSCRIBED") {
+          syncMessages();
+          syncReactions();
+        }
       });
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [groupId, userId, syncMessages]);
+  }, [groupId, userId, syncMessages, syncReactions]);
 
   // Resync when the app returns to the foreground — the socket usually dies
   // while backgrounded on mobile / in a standalone PWA.
   useEffect(() => {
     const onWake = () => {
-      if (document.visibilityState === "visible") syncMessages();
+      if (document.visibilityState === "visible") {
+        syncMessages();
+        syncReactions();
+      }
     };
     document.addEventListener("visibilitychange", onWake);
     window.addEventListener("focus", onWake);
@@ -267,17 +514,18 @@ export function ChatClient({
       document.removeEventListener("visibilitychange", onWake);
       window.removeEventListener("focus", onWake);
     };
-  }, [syncMessages]);
+  }, [syncMessages, syncReactions]);
 
-  // Safety-net poll while the chat is open and visible: catches messages even
-  // if realtime silently dropped without us backgrounding (the "it didn't
-  // update until I refreshed" case). Cheap — merge is a no-op when nothing's new.
+  // Safety-net poll while the chat is open and visible.
   useEffect(() => {
     const id = setInterval(() => {
-      if (document.visibilityState === "visible") syncMessages();
+      if (document.visibilityState === "visible") {
+        syncMessages();
+        syncReactions();
+      }
     }, 20_000);
     return () => clearInterval(id);
-  }, [syncMessages]);
+  }, [syncMessages, syncReactions]);
 
   // Note how close to the bottom we are, so incoming messages don't yank the
   // view when the user has scrolled up to read history.
@@ -312,10 +560,143 @@ export function ChatClient({
     return () => vv.removeEventListener("resize", onResize);
   }, [scrollToBottom]);
 
-  // Swipe the conversation left to reveal each message's time.
+  useEffect(
+    () => () => {
+      if (pressTimer.current) clearTimeout(pressTimer.current);
+      if (flashTimer.current) clearTimeout(flashTimer.current);
+    },
+    [],
+  );
+
+  // ── Reactions ─────────────────────────────────────────────────────────────
+
+  const myReaction = useCallback(
+    (mid: string) =>
+      reactions.find((r) => r.message_id === mid && r.user_id === userId) ??
+      null,
+    [reactions, userId],
+  );
+
+  const toggleReaction = useCallback(
+    async (msg: Message, emoji: string) => {
+      if (msg.id.startsWith("temp-")) return;
+      const supabase = createClient();
+      const mine = myReaction(msg.id);
+
+      if (mine && mine.emoji === emoji) {
+        // Tap the same emoji again → remove (IG behavior).
+        setReactions((prev) => prev.filter((r) => r !== mine));
+        const { error } = await supabase
+          .from("message_reactions")
+          .delete()
+          .eq("message_id", msg.id)
+          .eq("user_id", userId);
+        if (error) setReactions((prev) => [...prev, mine]);
+        return;
+      }
+
+      // Add, or replace the previous emoji.
+      const temp: Reaction = {
+        id: `temp-${crypto.randomUUID()}`,
+        message_id: msg.id,
+        group_id: groupId,
+        user_id: userId,
+        emoji,
+        created_at: new Date().toISOString(),
+      };
+      setReactions((prev) => [
+        ...prev.filter(
+          (r) => !(r.message_id === msg.id && r.user_id === userId),
+        ),
+        temp,
+      ]);
+      const { data, error } = await supabase
+        .from("message_reactions")
+        .upsert(
+          { message_id: msg.id, group_id: groupId, user_id: userId, emoji },
+          { onConflict: "message_id,user_id" },
+        )
+        .select("*")
+        .single();
+      setReactions((prev) => {
+        const rest = prev.filter((r) => r.id !== temp.id);
+        if (error || !data) return mine ? [...rest, mine] : rest;
+        return [...rest, data as Reaction];
+      });
+    },
+    [groupId, userId, myReaction],
+  );
+
+  // ── Message gestures ──────────────────────────────────────────────────────
+
+  const openActions = useCallback((msg: Message, el: HTMLElement) => {
+    if (msg.id.startsWith("temp-")) return;
+    const r = el.getBoundingClientRect();
+    navigator.vibrate?.(8);
+    (document.activeElement as HTMLElement | null)?.blur();
+    setAction({
+      msg,
+      anchor: { top: r.top, bottom: r.bottom, left: r.left, right: r.right },
+    });
+  }, []);
+
+  const onBubbleTouchStart = (msg: Message) => (e: React.TouchEvent) => {
+    const el = e.currentTarget as HTMLElement;
+    if (pressTimer.current) clearTimeout(pressTimer.current);
+    pressTimer.current = setTimeout(() => openActions(msg, el), LONG_PRESS_MS);
+  };
+  const cancelPress = () => {
+    if (pressTimer.current) {
+      clearTimeout(pressTimer.current);
+      pressTimer.current = null;
+    }
+  };
+
+  const onBubbleClick = (msg: Message) => (e: React.MouseEvent) => {
+    // Double-tap (touch fires click too) / double-click → ❤️, like IG.
+    const now = Date.now();
+    if (lastTap.current?.mid === msg.id && now - lastTap.current.t < 300) {
+      lastTap.current = null;
+      e.preventDefault();
+      toggleReaction(msg, "❤️");
+      return;
+    }
+    lastTap.current = { mid: msg.id, t: now };
+  };
+
+  const onBubbleContextMenu = (msg: Message) => (e: React.MouseEvent) => {
+    e.preventDefault();
+    openActions(msg, e.currentTarget as HTMLElement);
+  };
+
+  const scrollToMessage = useCallback((mid: string) => {
+    const el = rowRefs.current.get(mid);
+    if (!el) return;
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+    setFlashId(mid);
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setFlashId(null), 1400);
+  }, []);
+
+  const startReply = useCallback(
+    (msg: Message) => {
+      if (msg.id.startsWith("temp-")) return;
+      setReplyTo(msg);
+      setAction(null);
+      inputRef.current?.focus();
+    },
+    [],
+  );
+
+  // ── List swipes ───────────────────────────────────────────────────────────
+
   const onListTouchStart = (e: React.TouchEvent) => {
     const t = e.touches[0];
-    drag.current = { x: t.clientX, y: t.clientY, axis: null };
+    const mid =
+      (e.target as HTMLElement)
+        .closest("[data-mid]")
+        ?.getAttribute("data-mid") ?? null;
+    drag.current = { x: t.clientX, y: t.clientY, axis: null, mid };
   };
   const onListTouchMove = (e: React.TouchEvent) => {
     const s = drag.current;
@@ -326,10 +707,29 @@ export function ChatClient({
     if (s.axis === null && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
       s.axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
     }
-    if (s.axis === "x") setRevealX(Math.max(-64, Math.min(0, dx)));
+    if (s.axis !== "x") return;
+    cancelPress();
+    if (dx < 0) {
+      // reveal times
+      setSwipeReply(null);
+      setRevealX(Math.max(-64, dx));
+    } else if (s.mid && !s.mid.startsWith("temp-")) {
+      // drag a message right to reply
+      setRevealX(0);
+      setSwipeReply({ mid: s.mid, x: Math.min(dx, 80) });
+    }
   };
   const onListTouchEnd = () => {
+    const s = swipeReply;
+    if (s && s.x >= SWIPE_REPLY_TRIGGER) {
+      const msg = messageMap.get(s.mid);
+      if (msg) {
+        navigator.vibrate?.(8);
+        startReply(msg);
+      }
+    }
     drag.current = null;
+    setSwipeReply(null);
     setRevealX(0);
   };
 
@@ -368,7 +768,8 @@ export function ChatClient({
   const pickMention = (member: GroupMember) => {
     if (!mentionQuery) return;
     const caret =
-      inputRef.current?.selectionStart ?? mentionQuery.start + mentionQuery.q.length + 1;
+      inputRef.current?.selectionStart ??
+      mentionQuery.start + mentionQuery.q.length + 1;
     const before = draft.slice(0, mentionQuery.start);
     const after = draft.slice(caret);
     const insert = `@${member.display_name} `;
@@ -384,6 +785,7 @@ export function ChatClient({
     const mentioned = members
       .filter((m) => body.includes(`@${m.display_name}`))
       .map((m) => m.user_id);
+    const replyId = replyTo && !replyTo.id.startsWith("temp-") ? replyTo.id : null;
 
     const tempId = `temp-${crypto.randomUUID()}`;
     const optimistic: Message = {
@@ -392,16 +794,24 @@ export function ChatClient({
       user_id: userId,
       body,
       mentions: mentioned,
+      reply_to: replyId,
       created_at: new Date().toISOString(),
     };
     setMessages((prev) => [...prev, optimistic]);
     setDraft("");
+    setReplyTo(null);
     setMentionQuery(null);
 
     const supabase = createClient();
     const { data, error } = await supabase
       .from("messages")
-      .insert({ group_id: groupId, user_id: userId, body, mentions: mentioned })
+      .insert({
+        group_id: groupId,
+        user_id: userId,
+        body,
+        mentions: mentioned,
+        reply_to: replyId,
+      })
       .select("*")
       .single();
 
@@ -436,11 +846,33 @@ export function ChatClient({
         return;
       }
     }
+    if (e.key === "Escape" && replyTo) {
+      setReplyTo(null);
+      return;
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       send();
     }
   };
+
+  /** "You replied to Yusuf" caption for a reply message. */
+  const replyCaption = (msg: Message, original: Message | undefined) => {
+    const replier =
+      msg.user_id === userId ? "You" : firstName(memberMap.get(msg.user_id)?.display_name);
+    if (!original) return `${replier} replied`;
+    let target: string;
+    if (original.user_id === userId) {
+      target = msg.user_id === userId ? "yourself" : "you";
+    } else if (original.user_id === msg.user_id) {
+      target = msg.user_id === userId ? "yourself" : "themselves";
+    } else {
+      target = firstName(memberMap.get(original.user_id)?.display_name);
+    }
+    return `${replier} replied to ${target}`;
+  };
+
+  const reactorsList = reactorsFor ? (reactionsByMsg.get(reactorsFor) ?? []) : [];
 
   return (
     <div className="flex h-full flex-col">
@@ -483,7 +915,7 @@ export function ChatClient({
               <p className="text-footnote text-muted">
                 {notifyChat
                   ? "On — you're notified for new messages."
-                  : "Off — only @mentions notify you."}
+                  : "Off — only @mentions and replies notify you."}
               </p>
             </div>
             <button
@@ -592,6 +1024,73 @@ export function ChatClient({
         </div>
       </Sheet>
 
+      {/* Who reacted */}
+      <Sheet
+        open={reactorsFor !== null}
+        onClose={() => setReactorsFor(null)}
+        labelledBy="reactors-title"
+      >
+        <div className="px-5 pt-2">
+          <h2 id="reactors-title" className="mb-4 text-title2">
+            Reactions
+          </h2>
+          <div className="space-y-2 pb-2">
+            {reactorsList.map((r) => {
+              const m = memberMap.get(r.user_id);
+              const mine = r.user_id === userId;
+              const msg = reactorsFor ? messageMap.get(reactorsFor) : undefined;
+              return (
+                <button
+                  key={r.user_id}
+                  disabled={!mine}
+                  onClick={() => {
+                    if (mine && msg) {
+                      toggleReaction(msg, r.emoji); // same emoji → removes
+                      setReactorsFor(null);
+                    }
+                  }}
+                  className="flex w-full items-center gap-3 rounded-2xl bg-surface p-3 text-left shadow-e1"
+                >
+                  <Avatar
+                    name={m?.display_name ?? "Member"}
+                    src={m?.avatar_url}
+                    size={40}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-callout font-medium">
+                      {mine ? "You" : (m?.display_name ?? "Member")}
+                    </p>
+                    {mine && (
+                      <p className="text-footnote text-faint">Tap to remove</p>
+                    )}
+                  </div>
+                  <span className="text-[22px] leading-none">{r.emoji}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </Sheet>
+
+      {/* Long-press actions */}
+      {action && (
+        <ActionOverlay
+          anchor={action.anchor}
+          mine={action.msg.user_id === userId}
+          myEmoji={myReaction(action.msg.id)?.emoji ?? null}
+          onReact={(emoji) => {
+            toggleReaction(action.msg, emoji);
+            setAction(null);
+          }}
+          onReply={() => startReply(action.msg)}
+          onCopy={() => {
+            navigator.clipboard?.writeText(action.msg.body).catch(() => {});
+            setAction(null);
+          }}
+          onClose={() => setAction(null)}
+        />
+      )}
+
       {/* Messages */}
       <div
         ref={scrollerRef}
@@ -640,8 +1139,26 @@ export function ChatClient({
               const firstOfGroup = !sameAsPrev;
               const lastOfGroup = !sameAsNext;
               const pending = msg.id.startsWith("temp-");
+              const msgReactions = reactionsByMsg.get(msg.id) ?? [];
+              const original = msg.reply_to
+                ? messageMap.get(msg.reply_to)
+                : undefined;
+              const dragX = swipeReply?.mid === msg.id ? swipeReply.x : 0;
               return (
-                <div key={msg.id} className={sameAsPrev ? "mt-0.5" : "mt-3"}>
+                <div
+                  key={msg.id}
+                  data-mid={msg.id}
+                  ref={(el) => {
+                    if (el) rowRefs.current.set(msg.id, el);
+                    else rowRefs.current.delete(msg.id);
+                  }}
+                  className={cn(
+                    sameAsPrev ? "mt-0.5" : "mt-3",
+                    msgReactions.length > 0 && "mb-3",
+                    "rounded-2xl transition-colors duration-700",
+                    flashId === msg.id && "bg-accent-tint",
+                  )}
+                >
                   {showStamp && (
                     <div className="flex justify-center pb-2 pt-1">
                       <span className="text-[11px] font-medium text-faint">
@@ -649,12 +1166,56 @@ export function ChatClient({
                       </span>
                     </div>
                   )}
+
+                  {/* Reply context — IG puts the caption + quoted bubble above */}
+                  {msg.reply_to && (
+                    <div
+                      className={cn(
+                        "flex flex-col pt-1",
+                        mine ? "items-end pr-1" : "items-start pl-9",
+                      )}
+                    >
+                      <p className="mb-1 flex items-center gap-1 px-1 text-caption text-faint">
+                        <Reply className="size-3" />
+                        {replyCaption(msg, original)}
+                      </p>
+                      <button
+                        onClick={() =>
+                          original && scrollToMessage(original.id)
+                        }
+                        disabled={!original}
+                        className={cn(
+                          "-mb-1 max-w-[70%] rounded-2xl border-l-2 border-accent/50 bg-surface-2/70 px-3 py-1.5 text-left",
+                          mine ? "mr-1" : "ml-1",
+                        )}
+                      >
+                        <p className="line-clamp-2 text-footnote text-muted">
+                          {original ? original.body : "Original message unavailable"}
+                        </p>
+                      </button>
+                    </div>
+                  )}
+
                   <div
                     className={cn(
                       "relative flex items-end gap-2",
                       mine ? "justify-end" : "justify-start",
                     )}
+                    style={{
+                      transform: dragX ? `translateX(${dragX}px)` : undefined,
+                      transition: dragX
+                        ? "none"
+                        : "transform 220ms var(--ease-spring)",
+                    }}
                   >
+                    {/* Swipe-right reply affordance */}
+                    <span
+                      className="pointer-events-none absolute -left-9 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-full bg-surface-2 text-muted"
+                      style={{ opacity: Math.min(1, dragX / SWIPE_REPLY_TRIGGER) }}
+                    >
+                      <Reply className="size-4" />
+                    </span>
+
                     {!mine && (
                       <div className="w-7 shrink-0 self-end">
                         {lastOfGroup && (
@@ -667,8 +1228,13 @@ export function ChatClient({
                       </div>
                     )}
                     <div
+                      onTouchStart={onBubbleTouchStart(msg)}
+                      onTouchMove={cancelPress}
+                      onTouchEnd={cancelPress}
+                      onClick={onBubbleClick(msg)}
+                      onContextMenu={onBubbleContextMenu(msg)}
                       className={cn(
-                        "max-w-[76%] rounded-[20px] px-3.5 py-2",
+                        "relative max-w-[76%] select-none rounded-[20px] px-3.5 py-2 [-webkit-touch-callout:none]",
                         mine
                           ? "bg-accent text-on-accent"
                           : "bg-surface-2 text-foreground",
@@ -692,11 +1258,13 @@ export function ChatClient({
                           mine={mine}
                         />
                       </p>
+                      <ReactionChips
+                        reactions={msgReactions}
+                        mine={mine}
+                        onOpen={() => setReactorsFor(msg.id)}
+                      />
                     </div>
-                    {/* Time revealed by swiping the conversation left. Offset a
-                        full px-4 past the row edge so it stays hidden (the
-                        scroller clips at the padding box, not the content box)
-                        until the swipe shifts it into view. */}
+                    {/* Time revealed by swiping the conversation left. */}
                     <span className="pointer-events-none absolute left-[calc(100%+1rem)] top-1/2 w-16 -translate-y-1/2 pr-3 text-right text-[11px] tabular-nums text-faint">
                       {pending ? "…" : timeLabel(msg.created_at, tz)}
                     </span>
@@ -734,6 +1302,28 @@ export function ChatClient({
                 </span>
               </button>
             ))}
+          </div>
+        )}
+
+        {/* Replying-to bar */}
+        {replyTo && (
+          <div className="mb-2 flex items-center gap-2.5 rounded-xl border-l-2 border-accent bg-surface-2 py-2 pl-3 pr-2">
+            <div className="min-w-0 flex-1">
+              <p className="text-caption font-semibold text-accent">
+                Replying to{" "}
+                {replyTo.user_id === userId
+                  ? "yourself"
+                  : firstName(memberMap.get(replyTo.user_id)?.display_name)}
+              </p>
+              <p className="truncate text-footnote text-muted">{replyTo.body}</p>
+            </div>
+            <button
+              onClick={() => setReplyTo(null)}
+              aria-label="Cancel reply"
+              className="grid size-7 shrink-0 place-items-center rounded-full bg-surface text-muted"
+            >
+              <X className="size-3.5" />
+            </button>
           </div>
         )}
 

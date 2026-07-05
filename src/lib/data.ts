@@ -6,7 +6,40 @@ import type {
   Reminder,
   GroupMember,
   Message,
+  Reaction,
+  ReadingRow,
 } from "@/lib/types";
+
+/** All reactions on the group's recent messages (small group — fetch all). */
+export async function getGroupReactions(
+  groupId: string,
+  limit = 1000,
+): Promise<Reaction[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("message_reactions")
+    .select("*")
+    .eq("group_id", groupId)
+    .order("created_at", { ascending: true })
+    .limit(limit);
+  return (data as Reaction[] | null) ?? [];
+}
+
+/** All-time tilawah rows (reading + revising) for the group khatmah tracker. */
+export async function getGroupReadingAllTime(
+  groupId: string,
+): Promise<ReadingRow[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("log_entries")
+    .select("user_id, logged_at, pages_equiv, mushaf")
+    .eq("group_id", groupId)
+    .in("entry_type", ["reading", "revising"])
+    .order("logged_at", { ascending: true })
+    // Cap is a safety valve; a 5-person group is ~2.7 years from hitting it.
+    .limit(10000);
+  return (data as ReadingRow[] | null) ?? [];
+}
 
 /** The current user's first group membership (the app assumes one circle). */
 export async function getMyMembership(): Promise<Membership | null> {
