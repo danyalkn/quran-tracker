@@ -3,8 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ResponsiveContainer,
-  AreaChart,
-  Area,
   BarChart,
   Bar,
   PieChart,
@@ -259,37 +257,6 @@ export function StatsClient({
   const khatmahs = Math.floor(groupRead / KHATMAH_PAGES);
   const khatmahProgress = +(groupRead - khatmahs * KHATMAH_PAGES).toFixed(1);
   const khatmahPct = Math.min(100, (khatmahProgress / KHATMAH_PAGES) * 100);
-
-  // Cumulative group pages, weekly buckets (up to the last 26 weeks).
-  const cumulative = useMemo(() => {
-    if (readingAll.length === 0) return [] as { label: string; cum: number }[];
-    const first = localDate(readingAll[0].logged_at, tz);
-    const daysSince =
-      Math.floor(
-        (new Date(`${today}T12:00:00`).getTime() -
-          new Date(`${first}T12:00:00`).getTime()) /
-          86400000,
-      ) + 1;
-    const weeks = Math.max(2, Math.min(26, Math.ceil(daysSince / 7)));
-    const days = lastNDays(tz, weeks * 7);
-    const start = days[0];
-    let base = 0;
-    const byDay = new Map<string, number>();
-    for (const r of readingAll) {
-      const d = localDate(r.logged_at, tz);
-      const p = r.pages_equiv ? +r.pages_equiv : 0;
-      if (d < start) base += p;
-      else byDay.set(d, (byDay.get(d) ?? 0) + p);
-    }
-    let cum = base;
-    const out: { label: string; cum: number }[] = [];
-    for (let w = 0; w < weeks; w++) {
-      const chunk = days.slice(w * 7, w * 7 + 7);
-      cum += chunk.reduce((s, d) => s + (byDay.get(d) ?? 0), 0);
-      out.push({ label: shortDate(chunk[6]), cum: +cum.toFixed(1) });
-    }
-    return out;
-  }, [readingAll, tz, today]);
 
   // ── Insights ──────────────────────────────────────────────────────────────
   const insights = useMemo(() => {
@@ -567,9 +534,12 @@ export function StatsClient({
                 Uthmani · {KHATMAH_PAGES} pages
               </span>
             </div>
-            <div className="mt-3 flex items-baseline gap-2">
+            <div className="mt-3 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
               <span className="text-display tabular-nums">{groupRead}</span>
               <span className="text-callout text-muted">pages read together</span>
+              <span className="text-footnote text-faint">
+                ≈ {Math.round(groupRead / 20)} juz
+              </span>
             </div>
 
             {/* Progress to the next completion */}
@@ -625,57 +595,64 @@ export function StatsClient({
           </Card>
         )}
 
-        {/* ── GROUP: cumulative pages ── */}
+        {/* ── GROUP: pages per day ── */}
         {scope === "group" && (
-          <Card title="Pages read · all time">
-            {cumulative.length === 0 ? (
+          <Card title="Group pages · last 14 days">
+            {totalPages14 === 0 ? (
               <Empty>
                 No pages logged yet. Every entry — reading, sabak, sabak para,
                 and dhor — counts toward the group khatmah.
               </Empty>
             ) : (
-              <ResponsiveContainer width="100%" height={170}>
-                <AreaChart
-                  data={cumulative}
-                  margin={{ top: 8, right: 4, bottom: 0, left: 0 }}
-                >
-                  <CartesianGrid vertical={false} stroke={colors.grid} />
-                  <XAxis
-                    dataKey="label"
-                    tick={{ fill: colors.tick, fontSize: 11 }}
-                    tickLine={false}
-                    axisLine={false}
-                    interval="preserveStartEnd"
-                    minTickGap={40}
-                  />
-                  <YAxis
-                    tick={{ fill: colors.tick, fontSize: 11 }}
-                    tickLine={false}
-                    axisLine={false}
-                    width={38}
-                  />
-                  <Tooltip
-                    cursor={{ stroke: colors.grid }}
-                    content={({ active, payload }) => (
-                      <TooltipCard
-                        active={active}
-                        label={`Week of ${payload?.[0]?.payload?.label}`}
-                        value={payload?.[0]?.value as number}
-                        suffix="pages"
-                      />
-                    )}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="cum"
-                    isAnimationActive={false}
-                    stroke={colors.accent}
-                    strokeWidth={2.25}
-                    fill={colors.accent}
-                    fillOpacity={0.12}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
+              <>
+                <div className="mb-2 flex items-baseline gap-2">
+                  <span className="text-title2 tabular-nums">
+                    {totalPages14}
+                  </span>
+                  <span className="text-footnote text-muted">
+                    pages · ≈ {Math.round(totalPages14 / 20)} juz
+                  </span>
+                </div>
+                <ResponsiveContainer width="100%" height={170}>
+                  <BarChart
+                    data={pagesBar}
+                    margin={{ top: 8, right: 4, bottom: 0, left: -24 }}
+                  >
+                    <CartesianGrid vertical={false} stroke={colors.grid} />
+                    <XAxis
+                      dataKey="label"
+                      tick={{ fill: colors.tick, fontSize: 11 }}
+                      tickLine={false}
+                      axisLine={false}
+                      interval={1}
+                    />
+                    <YAxis
+                      tick={{ fill: colors.tick, fontSize: 11 }}
+                      tickLine={false}
+                      axisLine={false}
+                      width={32}
+                    />
+                    <Tooltip
+                      cursor={{ fill: colors.surface2 }}
+                      content={({ active, payload }) => (
+                        <TooltipCard
+                          active={active}
+                          label={payload?.[0]?.payload?.full}
+                          value={payload?.[0]?.value as number}
+                          suffix="pages"
+                        />
+                      )}
+                    />
+                    <Bar
+                      dataKey="pages"
+                      isAnimationActive={false}
+                      fill={colors.accent}
+                      radius={[6, 6, 0, 0]}
+                      maxBarSize={18}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              </>
             )}
           </Card>
         )}
