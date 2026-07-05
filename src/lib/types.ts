@@ -51,13 +51,11 @@ export type Reaction = {
 };
 
 /** Slim row for all-time group page aggregates (khatmah tracker) — every
- *  entry type counts, so `unit` is needed to normalize page amounts by mushaf. */
+ *  entry type counts, summed via pages_equiv (already page-normalized). */
 export type ReadingRow = {
   user_id: string;
   logged_at: string;
   pages_equiv: number | null;
-  unit: Unit | null;
-  mushaf: MushafId | null;
 };
 
 export type Reminder = {

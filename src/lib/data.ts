@@ -33,7 +33,7 @@ export async function getGroupPagesAllTime(
   const supabase = await createClient();
   const { data } = await supabase
     .from("log_entries")
-    .select("user_id, logged_at, pages_equiv, unit, mushaf")
+    .select("user_id, logged_at, pages_equiv")
     .eq("group_id", groupId)
     .order("logged_at", { ascending: true })
     // Cap is a safety valve; a 5-person group is ~2.7 years from hitting it.

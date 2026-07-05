@@ -112,18 +112,6 @@ const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
 const pagesOf = (rows: { pages_equiv: number | null }[]) =>
   +rows.reduce((s, e) => s + (e.pages_equiv ? +e.pages_equiv : 0), 0).toFixed(1);
 
-/** One entry's contribution to the group khatmah, in 604-page Uthmani pages.
- *  Only raw "page" amounts depend on the reader's mushaf (a 13-line page is a
- *  smaller slice than a 15-line one); juz/quarter/hizb are structural and
- *  already Uthmani-equivalent via pages_equiv (×20/×5/×10). Ayahs → 0. */
-function normPages(row: ReadingRow): number {
-  const p = row.pages_equiv ? +row.pages_equiv : 0;
-  if (row.unit === "page") {
-    return p * (KHATMAH_PAGES / totalPages(row.mushaf ?? "uthmani15"));
-  }
-  return p;
-}
-
 export function StatsClient({
   mode,
   tz,
@@ -264,11 +252,10 @@ export function StatsClient({
   const totalEntriesAll = scoped.length;
   const totalPagesAll = pagesOf(scoped);
 
-  // ── Group khatmah (all-time tilawah: reading + revising) ─────────────────
-  // Normalize every reader's pages to the 604-page Uthmani reference.
-  const groupRead = +readingAll
-    .reduce((s, r) => s + normPages(r), 0)
-    .toFixed(1);
+  // ── Group khatmah (all-time, every entry type) ──────────────────────────
+  // pages_equiv already converts juz/quarter/hizb → pages; page amounts are
+  // raw pages; ayah-only entries contribute nothing.
+  const groupRead = pagesOf(readingAll);
   const khatmahs = Math.floor(groupRead / KHATMAH_PAGES);
   const khatmahProgress = +(groupRead - khatmahs * KHATMAH_PAGES).toFixed(1);
   const khatmahPct = Math.min(100, (khatmahProgress / KHATMAH_PAGES) * 100);
@@ -290,7 +277,7 @@ export function StatsClient({
     const byDay = new Map<string, number>();
     for (const r of readingAll) {
       const d = localDate(r.logged_at, tz);
-      const p = normPages(r);
+      const p = r.pages_equiv ? +r.pages_equiv : 0;
       if (d < start) base += p;
       else byDay.set(d, (byDay.get(d) ?? 0) + p);
     }
