@@ -373,14 +373,36 @@ export function ChatClient({
   // Re-fetch + merge messages. Heals gaps left when the realtime socket drops
   // (backgrounded PWA, network blip) — missed messages reappear without the
   // user having to manually refresh.
+  //
+  // Failure handling matters more than the fetch: after an iOS suspend the
+  // client's access token is often expired, and supabase-js then either
+  // errors (401) or — if the session is gone — silently falls back to the
+  // ANON key, where RLS returns 200 with zero rows. Both used to read as
+  // "nothing new" and made every healing layer a no-op. Now: on error or a
+  // suspicious empty result, force a session re-read (which refreshes an
+  // expired token from the auth cookies) and retry once.
   const syncMessages = useCallback(async () => {
     const supabase = createClient();
-    const { data } = await supabase
-      .from("messages")
-      .select("*")
-      .eq("group_id", groupId)
-      .order("created_at", { ascending: false })
-      .limit(100);
+    const fetchPage = () =>
+      supabase
+        .from("messages")
+        .select("*")
+        .eq("group_id", groupId)
+        .order("created_at", { ascending: false })
+        .limit(100);
+
+    let { data, error } = await fetchPage();
+    if (error || data == null || data.length === 0) {
+      const { data: s } = await supabase.auth.getSession();
+      if (error || data == null) {
+        if (s.session) await supabase.realtime.setAuth().catch(() => {});
+        ({ data, error } = await fetchPage());
+        if (error || data == null) return; // still unknown — never fake "empty"
+      } else if (!s.session) {
+        // 200 + empty with no session = anon-key downgrade, not an empty chat.
+        return;
+      }
+    }
     const server = ((data as Message[] | null) ?? []).reverse();
     if (server.length === 0) return;
     setMessages((prev) => {
@@ -405,15 +427,24 @@ export function ChatClient({
   }, [groupId]);
 
   // Same healing pattern for reactions: refetch and merge, keeping in-flight
-  // optimistic rows that haven't landed server-side yet.
+  // optimistic rows that haven't landed server-side yet. A failed fetch must
+  // NEVER be treated as "no reactions" — that used to wipe them all.
   const syncReactions = useCallback(async () => {
     const supabase = createClient();
-    const { data } = await supabase
-      .from("message_reactions")
-      .select("*")
-      .eq("group_id", groupId)
-      .order("created_at", { ascending: true })
-      .limit(1000);
+    const fetchAll = () =>
+      supabase
+        .from("message_reactions")
+        .select("*")
+        .eq("group_id", groupId)
+        .order("created_at", { ascending: true })
+        .limit(1000);
+
+    let { data, error } = await fetchAll();
+    if (error || data == null) {
+      await supabase.auth.getSession(); // refresh an expired session, then retry
+      ({ data, error } = await fetchAll());
+      if (error || data == null) return;
+    }
     const server = (data as Reaction[] | null) ?? [];
     setReactions((prev) => {
       const next = [...server];
@@ -431,12 +462,67 @@ export function ChatClient({
     });
   }, [groupId]);
 
-  // Realtime: messages + reactions. On every (re)subscribe we resync to
-  // backfill anything missed while the socket was down.
+  // Realtime transport. Hardened against every silent-death mode we've hit:
+  // - Fresh topic per join: supabase.channel() returns an existing same-topic
+  //   instance while the old one is still tearing down, and subscribing to it
+  //   silently no-ops — unique topics sidestep the remount race entirely.
+  // - CHANNEL_ERROR / TIMED_OUT / CLOSED rebuild the channel with backoff
+  //   after refreshing auth; errored channels never self-heal upstream
+  //   (supabase realtime-js#274 — closed "not planned"), so rejoining is ours.
+  // - ensureLive() (called on wake/online) force-resets the transport when
+  //   the channel isn't joined or the app was suspended long enough that the
+  //   socket is likely a zombie that still claims to be connected.
+  // - postgres_changes has no replay: every (re)join resyncs via REST.
+  const joinSeq = useRef(0);
+  const ensureLive = useRef<(hard: boolean) => void>(() => {});
+
   useEffect(() => {
     const supabase = createClient();
-    const channel = supabase
-      .channel(`chat-${groupId}`)
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let joined = false;
+    let attempt = 0;
+    let retry: ReturnType<typeof setTimeout> | null = null;
+    let disposed = false;
+
+    const teardown = () => {
+      joined = false;
+      if (channel) {
+        const ch = channel;
+        channel = null;
+        supabase.removeChannel(ch);
+      }
+    };
+
+    const rejoinNow = async () => {
+      if (disposed) return;
+      // Joins fail for stale JWTs more than anything else: re-read the session
+      // (refreshing it if expired) and push the fresh token to the socket.
+      const { data } = await supabase.auth.getSession();
+      if (disposed) return;
+      if (data.session) {
+        try {
+          await supabase.realtime.setAuth();
+        } catch {
+          /* non-fatal — join carries the token too */
+        }
+      }
+      join();
+    };
+
+    const scheduleRejoin = () => {
+      if (disposed || retry) return;
+      const delay = Math.min(15_000, 1_000 * 2 ** Math.min(attempt++, 4));
+      retry = setTimeout(() => {
+        retry = null;
+        rejoinNow();
+      }, delay);
+    };
+
+    const join = () => {
+      if (disposed) return;
+      teardown();
+      const ch = supabase
+      .channel(`chat-${groupId}-${++joinSeq.current}`)
       .on(
         "postgres_changes",
         {
@@ -489,30 +575,93 @@ export function ChatClient({
         },
       )
       .subscribe((status) => {
+        if (disposed || ch !== channel) return; // stale channel's echo
         if (status === "SUBSCRIBED") {
+          joined = true;
+          attempt = 0;
+          // No replay on postgres_changes — refill whatever we missed.
           syncMessages();
           syncReactions();
+        } else if (
+          status === "CHANNEL_ERROR" ||
+          status === "TIMED_OUT" ||
+          status === "CLOSED"
+        ) {
+          joined = false;
+          scheduleRejoin();
         }
       });
+      channel = ch;
+    };
+
+    ensureLive.current = (hard) => {
+      if (disposed) return;
+      if (retry) {
+        clearTimeout(retry);
+        retry = null;
+      }
+      attempt = 0;
+      if (hard) {
+        // Post-suspend the socket can be a zombie that still claims to be
+        // connected (dead TCP; ~25-50s until heartbeat timeout notices).
+        // Cycling it now beats waiting that out. Detach the channel first so
+        // its disconnect-driven CLOSED echo can't schedule a second rejoin.
+        teardown();
+        try {
+          supabase.realtime.disconnect();
+        } catch {
+          /* already down */
+        }
+        rejoinNow();
+      } else if (!joined) {
+        rejoinNow();
+      }
+    };
+
+    join();
+
     return () => {
-      supabase.removeChannel(channel);
+      disposed = true;
+      if (retry) clearTimeout(retry);
+      ensureLive.current = () => {};
+      teardown();
     };
   }, [groupId, userId, syncMessages, syncReactions]);
 
-  // Resync when the app returns to the foreground — the socket usually dies
-  // while backgrounded on mobile / in a standalone PWA.
+  // Wake/network handlers. Visibility loss on a phone usually means the PWA
+  // gets suspended — track how long we were hidden and do a hard transport
+  // reset when it was long enough for the socket to have died underneath us.
   useEffect(() => {
-    const onWake = () => {
-      if (document.visibilityState === "visible") {
-        syncMessages();
-        syncReactions();
+    const hiddenAt = { t: null as number | null };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        hiddenAt.t = Date.now();
+        return;
       }
+      const away = hiddenAt.t == null ? 0 : Date.now() - hiddenAt.t;
+      hiddenAt.t = null;
+      ensureLive.current(away > 15_000);
+      syncMessages();
+      syncReactions();
     };
-    document.addEventListener("visibilitychange", onWake);
-    window.addEventListener("focus", onWake);
+    const onFocus = () => {
+      if (document.visibilityState !== "visible") return;
+      ensureLive.current(false);
+      syncMessages();
+      syncReactions();
+    };
+    const onOnline = () => {
+      ensureLive.current(false);
+      syncMessages();
+      syncReactions();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("online", onOnline);
     return () => {
-      document.removeEventListener("visibilitychange", onWake);
-      window.removeEventListener("focus", onWake);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("online", onOnline);
     };
   }, [syncMessages, syncReactions]);
 
