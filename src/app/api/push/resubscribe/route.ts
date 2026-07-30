@@ -17,21 +17,11 @@ import { createClient } from "@/lib/supabase/server";
  * syncPushSubscription(), which always runs with a real session.
  */
 
-// Only the real push services — never let a client make our sender POST
-// encrypted payloads to an arbitrary host.
-const PUSH_HOSTS = [
-  "android.googleapis.com",
-  "fcm.googleapis.com",
-  "updates.push.services.mozilla.com",
-  "web.push.apple.com",
-];
-
-function pushHost(url: string): string | null {
+/** Host of an https URL, or null. */
+function httpsHost(url: string): string | null {
   try {
-    const { protocol, host } = new URL(url);
-    if (protocol !== "https:") return null;
-    const ok = PUSH_HOSTS.some((h) => host === h || host.endsWith(`.${h}`));
-    return ok ? host : null;
+    const u = new URL(url);
+    return u.protocol === "https:" ? u.host : null;
   } catch {
     return null;
   }
@@ -62,11 +52,18 @@ export async function POST(request: Request) {
   if (
     typeof oldEndpoint !== "string" ||
     typeof subscription?.endpoint !== "string" ||
-    !pushHost(oldEndpoint) ||
-    !pushHost(subscription.endpoint) ||
     typeof keys?.p256dh !== "string" ||
     typeof keys?.auth !== "string"
   ) {
+    return NextResponse.json({ updated: false });
+  }
+
+  // A rotation stays on the same push service. Comparing hosts instead of
+  // checking a hardcoded allowlist keeps every browser working (Chrome,
+  // Samsung Internet, Edge, Firefox, Safari all use different hosts) while
+  // still refusing to point a subscription at an unrelated server.
+  const oldHost = httpsHost(oldEndpoint);
+  if (!oldHost || httpsHost(subscription.endpoint) !== oldHost) {
     return NextResponse.json({ updated: false });
   }
 
@@ -90,18 +87,26 @@ export async function POST(request: Request) {
         .eq("user_id", user.id);
       return NextResponse.json({ updated: true });
     }
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    // Don't echo Postgres text back — an RLS message would reveal whether an
+    // endpoint is registered to someone else.
+    console.error("Push resubscribe update failed:", error.message);
+    return NextResponse.json({ error: "Could not update" }, { status: 500 });
   }
 
   if ((data?.length ?? 0) > 0) return NextResponse.json({ updated: true });
 
-  // No row matched (already pruned, or never ours) — register the new
-  // subscription for this user so the device isn't left silent.
-  const { error: upsertError } = await supabase
+  // No row matched: the send-push pruner already deleted it after the old
+  // endpoint 410'd. That is the *common* rotation ordering, so registering the
+  // new subscription here is what actually keeps the device alive — otherwise
+  // it stays silent until the user happens to open the app. This grants no
+  // extra capability: RLS already lets this same authenticated user write
+  // their own subscription row directly.
+  const { error: insertError } = await supabase
     .from("push_subscriptions")
     .upsert({ user_id: user.id, subscription }, { onConflict: "endpoint" });
-  if (upsertError) {
-    return NextResponse.json({ error: upsertError.message }, { status: 500 });
+  if (insertError) {
+    console.error("Push resubscribe insert failed:", insertError.message);
+    return NextResponse.json({ error: "Could not register" }, { status: 500 });
   }
   return NextResponse.json({ updated: true });
 }

@@ -34,7 +34,6 @@ import {
   todayLocal,
   currentStreak,
   longestStreak,
-  lastNDays,
   lastNDaysEndingOn,
   shortDate,
   dayLabel,
@@ -170,7 +169,7 @@ export function StatsClient({
 
   // Heatmap: entries per day, last 5 weeks, aligned to weekday columns.
   const heatGrid = useMemo(() => {
-    const days = lastNDays(tz, 35);
+    const days = lastNDaysEndingOn(today, 35);
     const count = (d: string) =>
       chartEntries.filter((e) => localDate(e.logged_at, tz) === d).length;
     const counts = days.map(count);
@@ -185,12 +184,12 @@ export function StatsClient({
     });
     while (cells.length % 7 !== 0) cells.push(null);
     return cells;
-  }, [chartEntries, tz]);
+  }, [chartEntries, tz, today]);
   const [activeCell, setActiveCell] = useState<number | null>(null);
 
   // Pages read per day, last 14 days (mine scope).
   const pagesBar = useMemo(() => {
-    const days = lastNDays(tz, 14);
+    const days = lastNDaysEndingOn(today, 14);
     return days.map((d) => ({
       label: new Date(`${d}T12:00:00`).getDate().toString(),
       full: shortDate(d),
@@ -198,12 +197,12 @@ export function StatsClient({
         chartEntries.filter((e) => localDate(e.logged_at, tz) === d),
       ),
     }));
-  }, [chartEntries, tz]);
+  }, [chartEntries, tz, today]);
   const totalPages14 = +pagesBar.reduce((s, b) => s + b.pages, 0).toFixed(1);
 
   // Weekly trend: pages per rolling 7-day bucket, last 8 weeks (mine scope).
   const weeklyBar = useMemo(() => {
-    const days = lastNDays(tz, 56);
+    const days = lastNDaysEndingOn(today, 56);
     const byDay = new Map<string, number>();
     for (const e of chartEntries) {
       const d = localDate(e.logged_at, tz);
@@ -222,7 +221,7 @@ export function StatsClient({
       });
     }
     return out;
-  }, [chartEntries, tz]);
+  }, [chartEntries, tz, today]);
   const weeklyTotal = +weeklyBar.reduce((s, w) => s + w.pages, 0).toFixed(1);
 
   // Donut (hifz only): Sabak vs Revision (memorization only — excludes reading).
@@ -242,9 +241,9 @@ export function StatsClient({
     [entries, tz, today],
   );
   const weekCount = useMemo(() => {
-    const days = new Set(lastNDays(tz, 7));
+    const days = new Set(lastNDaysEndingOn(today, 7));
     return scoped.filter((e) => days.has(localDate(e.logged_at, tz))).length;
-  }, [scoped, tz]);
+  }, [scoped, tz, today]);
 
   const totalEntries = chartEntries.length;
 
@@ -342,8 +341,8 @@ export function StatsClient({
 
   // ── Insights ──────────────────────────────────────────────────────────────
   const insights = useMemo(() => {
-    const week = new Set(lastNDays(tz, 7));
-    const prevWeek = new Set(lastNDays(tz, 14).slice(0, 7));
+    const week = new Set(lastNDaysEndingOn(today, 7));
+    const prevWeek = new Set(lastNDaysEndingOn(today, 14).slice(0, 7));
     const out: {
       icon: LucideIcon;
       text: React.ReactNode;
@@ -368,7 +367,7 @@ export function StatsClient({
         delta: lastW > 0 ? (thisW - lastW) / lastW : thisW > 0 ? 1 : null,
       });
 
-      const active14 = lastNDays(tz, 14).filter((d) => mineDays.has(d)).length;
+      const active14 = lastNDaysEndingOn(today, 14).filter((d) => mineDays.has(d)).length;
       out.push({
         icon: CalendarCheck,
         text: (
@@ -440,7 +439,7 @@ export function StatsClient({
       // Reading mode gets the richer "Your khatmah" card instead.
       if (!reading && lastRead && page) {
         const total = totalPages(lastRead.mushaf ?? "uthmani15");
-        const last14 = new Set(lastNDays(tz, 14));
+        const last14 = new Set(lastNDaysEndingOn(today, 14));
         const pace =
           pagesIn(
             minRows.filter(

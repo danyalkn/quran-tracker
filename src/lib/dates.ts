@@ -58,6 +58,14 @@ export function zonedIso(ymd: string, hour: number, tz: string): string {
   );
   let ts = naive - tzOffsetMs(new Date(naive), tz);
   ts = naive - tzOffsetMs(new Date(ts), tz);
+
+  // A spring-forward can make the requested wall time nonexistent (e.g. 00:00
+  // in Santiago on a transition date), which would resolve onto the previous
+  // day — the one thing this helper must never do. Step forward until the
+  // instant really is on the intended local date.
+  for (let i = 0; i < 4 && localDate(ts, tz) !== ymd; i++) {
+    ts += 60 * 60 * 1000;
+  }
   return new Date(ts).toISOString();
 }
 
