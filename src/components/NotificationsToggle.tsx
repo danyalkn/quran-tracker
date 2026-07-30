@@ -15,6 +15,39 @@ export function NotificationsToggle({ userId }: { userId: string }) {
   const [state, setState] = useState<PushState | "loading">("loading");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<string | null>(null);
+
+  const sendTest = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await fetch("/api/push/test", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Test failed.");
+      const sent: number = data.sent ?? 0;
+      const errors: { host: string; status: number | null }[] = data.errors ?? [];
+      if (sent === 0 && errors.length === 0) {
+        setTestResult(
+          "No registered devices found — turn notifications off and on again to re-register this one.",
+        );
+      } else if (errors.length > 0) {
+        setTestResult(
+          `Sent to ${sent} device(s); ${errors.length} failed (${errors
+            .map((e) => `${e.host}: ${e.status ?? "error"}`)
+            .join(", ")}). Try re-toggling notifications on the failing device.`,
+        );
+      } else {
+        setTestResult(
+          `Sent to ${sent} device(s). Nothing arrived on this phone? On Android, check Settings → Apps → Iqra (or Chrome) → Notifications is allowed, then re-toggle above.`,
+        );
+      }
+    } catch (e) {
+      setTestResult(e instanceof Error ? e.message : "Test failed.");
+    } finally {
+      setTesting(false);
+    }
+  };
 
   useEffect(() => {
     getPushState().then(setState).catch(() => setState("unsupported"));
@@ -88,6 +121,20 @@ export function NotificationsToggle({ userId }: { userId: string }) {
           )}
         </div>
         {error && <p className="mt-3 text-footnote text-danger">{error}</p>}
+        {on && (
+          <div className="mt-3 border-t border-border pt-3">
+            <button
+              onClick={sendTest}
+              disabled={testing}
+              className="text-footnote font-semibold text-accent disabled:opacity-60"
+            >
+              {testing ? "Sending test…" : "Send a test notification"}
+            </button>
+            {testResult && (
+              <p className="mt-1.5 text-footnote text-muted">{testResult}</p>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

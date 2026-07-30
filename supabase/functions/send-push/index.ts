@@ -66,6 +66,7 @@ Deno.serve(async (req) => {
 
   let sent = 0;
   let removed = 0;
+  const errors: { host: string; status: number | null; message: string }[] = [];
 
   await Promise.all(
     (subs ?? []).map(async (row) => {
@@ -79,14 +80,27 @@ Deno.serve(async (req) => {
         );
         sent++;
       } catch (err) {
-        const code = (err as { statusCode?: number })?.statusCode;
+        const e = err as { statusCode?: number; message?: string };
+        const code = e?.statusCode ?? null;
         if (code === 404 || code === 410) {
           await supabase.from("push_subscriptions").delete().eq("id", row.id);
           removed++;
+          return;
         }
+        // Anything else (FCM 400/403 = malformed request / VAPID key mismatch,
+        // 429 = rate limit, 5xx) used to vanish silently — exactly the class of
+        // failure that makes one platform "just not get notifications".
+        let host = "unknown";
+        try {
+          host = new URL(
+            (row.subscription as { endpoint?: string })?.endpoint ?? "",
+          ).host;
+        } catch {}
+        errors.push({ host, status: code, message: e?.message ?? String(err) });
+        console.error(`send-push failed (${host}, status ${code}):`, e?.message);
       }
     }),
   );
 
-  return Response.json({ sent, removed });
+  return Response.json({ sent, removed, errors });
 });
