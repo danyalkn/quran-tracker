@@ -24,6 +24,9 @@ import {
   Flag,
   CalendarCheck,
   UtensilsCrossed,
+  ChevronLeft,
+  ChevronRight,
+  Info,
   type LucideIcon,
 } from "lucide-react";
 import { type Mode } from "@/lib/entries";
@@ -37,9 +40,19 @@ import {
   lastNDaysEndingOn,
   shortDate,
   dayLabel,
+  weekDates,
+  weekDatesUpTo,
+  addWeeks,
+  weekRangeLabel,
+  monthKey,
+  addMonths,
+  monthDates,
+  monthLabel,
 } from "@/lib/dates";
 import { cn } from "@/lib/cn";
 import { Avatar } from "@/components/ui/Avatar";
+import { Sheet } from "@/components/ui/Sheet";
+import { Button } from "@/components/ui/Button";
 
 type Scope = "mine" | "group";
 type Filter = "all" | "sabak" | "revision";
@@ -106,7 +119,8 @@ function TooltipCard({
   );
 }
 
-const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
+// Monday-first, matching the Mon–Sun heatmap rows.
+const WEEKDAYS = ["M", "T", "W", "T", "F", "S", "S"];
 
 const pagesOf = (rows: { pages_equiv: number | null }[]) =>
   +rows.reduce((s, e) => s + (e.pages_equiv ? +e.pages_equiv : 0), 0).toFixed(1);
@@ -132,6 +146,7 @@ export function StatsClient({
   const memberCount = members.length;
   const [filter, setFilter] = useState<Filter>("all");
   const [scope, setScope] = useState<Scope>(initialScope);
+  const [showCoverage, setShowCoverage] = useState(false);
   const colors = useChartColors();
 
   const today = todayLocal(tz);
@@ -167,62 +182,66 @@ export function StatsClient({
   const streak = currentStreak(mineDays, tz);
   const longest = longestStreak(mineDays);
 
-  // Heatmap: entries per day, last 5 weeks, aligned to weekday columns.
+  // Heatmap: entries per day over the last 5 calendar weeks (Mon–Sun rows),
+  // ending with the current, partly-finished week. Whole weeks rather than a
+  // rolling 35 days, so the columns line up with real weekdays.
   const heatGrid = useMemo(() => {
-    const days = lastNDaysEndingOn(today, 35);
-    const count = (d: string) =>
-      chartEntries.filter((e) => localDate(e.logged_at, tz) === d).length;
-    const counts = days.map(count);
-    const max = Math.max(1, ...counts);
-    const lead = new Date(`${days[0]}T12:00:00`).getDay();
+    const byDay = new Map<string, number>();
+    for (const e of chartEntries) {
+      const d = localDate(e.logged_at, tz);
+      byDay.set(d, (byDay.get(d) ?? 0) + 1);
+    }
+    const max = Math.max(1, ...byDay.values());
     type Cell = { date: string; count: number; op: number } | null;
     const cells: Cell[] = [];
-    for (let i = 0; i < lead; i++) cells.push(null);
-    days.forEach((d, i) => {
-      const c = counts[i];
-      cells.push({ date: d, count: c, op: c === 0 ? 0 : 0.3 + 0.7 * (c / max) });
-    });
-    while (cells.length % 7 !== 0) cells.push(null);
+    for (let w = 4; w >= 0; w--) {
+      for (const d of weekDates(addWeeks(today, -w))) {
+        // Days after today in the current week stay blank.
+        if (d > today) {
+          cells.push(null);
+          continue;
+        }
+        const c = byDay.get(d) ?? 0;
+        cells.push({ date: d, count: c, op: c === 0 ? 0 : 0.3 + 0.7 * (c / max) });
+      }
+    }
     return cells;
   }, [chartEntries, tz, today]);
   const [activeCell, setActiveCell] = useState<number | null>(null);
 
-  // Pages read per day, last 14 days (mine scope).
-  const pagesBar = useMemo(() => {
-    const days = lastNDaysEndingOn(today, 14);
-    return days.map((d) => ({
-      label: new Date(`${d}T12:00:00`).getDate().toString(),
-      full: shortDate(d),
-      pages: pagesOf(
-        chartEntries.filter((e) => localDate(e.logged_at, tz) === d),
-      ),
-    }));
-  }, [chartEntries, tz, today]);
-  const totalPages14 = +pagesBar.reduce((s, b) => s + b.pages, 0).toFixed(1);
-
-  // Weekly trend: pages per rolling 7-day bucket, last 8 weeks (mine scope).
+  // Weekly trend: real calendar weeks (Mon–Sun), last 8 including this one.
+  // The current week is partial by design — it runs Monday → today.
   const weeklyBar = useMemo(() => {
-    const days = lastNDaysEndingOn(today, 56);
     const byDay = new Map<string, number>();
     for (const e of chartEntries) {
       const d = localDate(e.logged_at, tz);
       byDay.set(d, (byDay.get(d) ?? 0) + (e.pages_equiv ? +e.pages_equiv : 0));
     }
-    const out: { label: string; full: string; pages: number }[] = [];
-    for (let w = 0; w < 8; w++) {
-      const chunk = days.slice(w * 7, w * 7 + 7);
-      const pages = +chunk
+    const out: {
+      label: string;
+      full: string;
+      pages: number;
+      partial: boolean;
+    }[] = [];
+    for (let w = 7; w >= 0; w--) {
+      const monday = addWeeks(today, -w);
+      const dates = weekDatesUpTo(monday, today);
+      const pages = +dates
         .reduce((s, d) => s + (byDay.get(d) ?? 0), 0)
         .toFixed(1);
       out.push({
-        label: shortDate(chunk[0]),
-        full: `${shortDate(chunk[0])} – ${shortDate(chunk[6])}`,
+        label: shortDate(monday),
+        full: weekRangeLabel(monday, dates[dates.length - 1]),
         pages,
+        partial: w === 0 && dates.length < 7,
       });
     }
     return out;
   }, [chartEntries, tz, today]);
   const weeklyTotal = +weeklyBar.reduce((s, w) => s + w.pages, 0).toFixed(1);
+
+  // This calendar week so far: Monday → today.
+  const thisWeekDates = useMemo(() => weekDatesUpTo(today, today), [today]);
 
   // Donut (hifz only): Sabak vs Revision (memorization only — excludes reading).
   const sabakCount = scoped.filter((e) => e.entry_type === "sabak").length;
@@ -241,9 +260,9 @@ export function StatsClient({
     [entries, tz, today],
   );
   const weekCount = useMemo(() => {
-    const days = new Set(lastNDaysEndingOn(today, 7));
+    const days = new Set(thisWeekDates);
     return scoped.filter((e) => days.has(localDate(e.logged_at, tz))).length;
-  }, [scoped, tz, today]);
+  }, [scoped, tz, thisWeekDates]);
 
   const totalEntries = chartEntries.length;
 
@@ -255,60 +274,97 @@ export function StatsClient({
   const khatmahProgress = +(groupRead - khatmahs * KHATMAH_PAGES).toFixed(1);
   const khatmahPct = Math.min(100, (khatmahProgress / KHATMAH_PAGES) * 100);
 
-  // ── All-time & calendar-month totals (true all-time: readingAll has no
-  // date window, unlike `entries` which is capped at 180 days) ─────────────
-  const totals = useMemo(() => {
-    const thisM = today.slice(0, 7);
-    const firstOfMonth = new Date(`${thisM}-01T12:00:00`);
-    firstOfMonth.setMonth(firstOfMonth.getMonth() - 1);
-    const lastM = firstOfMonth.toLocaleDateString("en-CA").slice(0, 7);
+  // ── Month browsing ────────────────────────────────────────────────────────
+  // readingAll carries every page-bearing entry ever (no date window), so any
+  // past month can be shown from data already on the client.
+  const thisMonth = monthKey(today);
+  const [month, setMonth] = useState(thisMonth);
+  const isThisMonth = month === thisMonth;
 
-    const per = new Map<string, { all: number; month: number; lastMonth: number }>();
-    let groupMonth = 0;
-    let groupLastMonth = 0;
+  /** Local month key of each row, computed once — the timezone conversion is
+   *  the expensive part and every month view needs it. */
+  const readingByMonth = useMemo(() => {
+    const out = new Map<string, { user_id: string; date: string; pages: number }[]>();
+    let earliest = thisMonth;
     for (const r of readingAll) {
-      const p = r.pages_equiv ? +r.pages_equiv : 0;
-      if (!p) continue;
-      const rec = per.get(r.user_id) ?? { all: 0, month: 0, lastMonth: 0 };
-      rec.all += p;
-      const key = localDate(r.logged_at, tz).slice(0, 7);
-      if (key === thisM) {
-        rec.month += p;
-        groupMonth += p;
-      } else if (key === lastM) {
-        rec.lastMonth += p;
-        groupLastMonth += p;
+      const pages = r.pages_equiv ? +r.pages_equiv : 0;
+      if (!pages) continue;
+      const date = localDate(r.logged_at, tz);
+      const key = monthKey(date);
+      if (key < earliest) earliest = key;
+      const bucket = out.get(key);
+      if (bucket) bucket.push({ user_id: r.user_id, date, pages });
+      else out.set(key, [{ user_id: r.user_id, date, pages }]);
+    }
+    return { byMonth: out, earliest };
+  }, [readingAll, tz, thisMonth]);
+
+  // Don't let the user page back past the first month with any data.
+  const canGoBack = month > readingByMonth.earliest;
+
+  // ── All-time & selected-month totals (true all-time: readingAll has no date
+  // window, unlike `entries` which is capped at 180 days) ───────────────────
+  const totals = useMemo(() => {
+    const rowsFor = (key: string) => readingByMonth.byMonth.get(key) ?? [];
+    const sumBy = (key: string) => {
+      const per = new Map<string, number>();
+      let total = 0;
+      for (const r of rowsFor(key)) {
+        per.set(r.user_id, (per.get(r.user_id) ?? 0) + r.pages);
+        total += r.pages;
       }
-      per.set(r.user_id, rec);
+      return { per, total };
+    };
+
+    const selected = sumBy(month);
+    const previous = sumBy(addMonths(month, -1));
+
+    const allTime = new Map<string, number>();
+    for (const rows of readingByMonth.byMonth.values()) {
+      for (const r of rows) {
+        allTime.set(r.user_id, (allTime.get(r.user_id) ?? 0) + r.pages);
+      }
     }
 
     const board = members
-      .map((m) => {
-        const rec = per.get(m.user_id);
-        return {
-          member: m,
-          all: +(rec?.all ?? 0).toFixed(1),
-          month: +(rec?.month ?? 0).toFixed(1),
-        };
-      })
+      .map((m) => ({
+        member: m,
+        all: +(allTime.get(m.user_id) ?? 0).toFixed(1),
+        month: +(selected.per.get(m.user_id) ?? 0).toFixed(1),
+      }))
       .sort((a, b) => b.month - a.month || b.all - a.all);
 
-    const mine = per.get(userId);
     return {
       board,
       maxMonth: Math.max(1, ...board.map((b) => b.month)),
-      myAll: +(mine?.all ?? 0).toFixed(1),
-      myMonth: +(mine?.month ?? 0).toFixed(1),
-      myLastMonth: +(mine?.lastMonth ?? 0).toFixed(1),
-      groupMonth: +groupMonth.toFixed(1),
-      groupLastMonth: +groupLastMonth.toFixed(1),
+      myAll: +(allTime.get(userId) ?? 0).toFixed(1),
+      myMonth: +(selected.per.get(userId) ?? 0).toFixed(1),
+      myPrevMonth: +(previous.per.get(userId) ?? 0).toFixed(1),
+      groupMonth: +selected.total.toFixed(1),
+      groupPrevMonth: +previous.total.toFixed(1),
     };
-  }, [readingAll, members, userId, tz, today]);
+  }, [readingByMonth, members, userId, month]);
 
-  const monthName = new Date(`${today.slice(0, 7)}-01T12:00:00`).toLocaleDateString(
-    "en-GB",
-    { month: "long" },
-  );
+  // Pages per day across the selected month (capped at today for this month).
+  const monthBar = useMemo(() => {
+    const rows = readingByMonth.byMonth.get(month) ?? [];
+    const mine = scope === "mine";
+    const byDay = new Map<string, number>();
+    for (const r of rows) {
+      if (mine && r.user_id !== userId) continue;
+      byDay.set(r.date, (byDay.get(r.date) ?? 0) + r.pages);
+    }
+    return monthDates(month, isThisMonth ? today : undefined).map((d) => ({
+      label: String(+d.slice(8, 10)),
+      full: shortDate(d),
+      pages: +(byDay.get(d) ?? 0).toFixed(1),
+    }));
+  }, [readingByMonth, month, scope, userId, isThisMonth, today]);
+
+  const monthPages = +monthBar.reduce((s, d) => s + d.pages, 0).toFixed(1);
+  const monthActiveDays = monthBar.filter((d) => d.pages > 0).length;
+  const monthName = monthLabel(month, today);
+  const prevMonthName = monthLabel(addMonths(month, -1), today);
 
   // ── Personal khatmah — bookmark position from the latest reading entry ──
   const myKhatmah = useMemo(() => {
@@ -341,8 +397,13 @@ export function StatsClient({
 
   // ── Insights ──────────────────────────────────────────────────────────────
   const insights = useMemo(() => {
-    const week = new Set(lastNDaysEndingOn(today, 7));
-    const prevWeek = new Set(lastNDaysEndingOn(today, 14).slice(0, 7));
+    // Calendar weeks (Mon-based). The current week is partial, so compare it
+    // against the *same span* of last week — "Mon–Wed vs Mon–Wed" — otherwise
+    // every Monday would look like a collapse against a full 7-day week.
+    const week = new Set(thisWeekDates);
+    const prevWeek = new Set(
+      weekDates(addWeeks(today, -1)).slice(0, thisWeekDates.length),
+    );
     const out: {
       icon: LucideIcon;
       text: React.ReactNode;
@@ -361,7 +422,7 @@ export function StatsClient({
         text: (
           <>
             <b>{thisW}</b> pages this week{" "}
-            <span className="text-faint">· {lastW} last week</span>
+            <span className="text-faint">· {lastW} same days last week</span>
           </>
         ),
         delta: lastW > 0 ? (thisW - lastW) / lastW : thisW > 0 ? 1 : null,
@@ -483,7 +544,7 @@ export function StatsClient({
         text: (
           <>
             <b>{thisW}</b> group pages this week{" "}
-            <span className="text-faint">· {lastW} last week</span>
+            <span className="text-faint">· {lastW} same days last week</span>
           </>
         ),
         delta: lastW > 0 ? (thisW - lastW) / lastW : thisW > 0 ? 1 : null,
@@ -517,7 +578,18 @@ export function StatsClient({
       }
     }
     return out;
-  }, [scope, entries, userId, tz, today, mineDays, members, memberCount, reading]);
+  }, [
+    scope,
+    entries,
+    userId,
+    tz,
+    today,
+    thisWeekDates,
+    mineDays,
+    members,
+    memberCount,
+    reading,
+  ]);
 
   return (
     <div className="flex h-full flex-col overflow-y-auto pb-8">
@@ -582,14 +654,15 @@ export function StatsClient({
                 label="All-time pages"
                 value={totals.myAll}
                 sub={`≈ ${Math.round(totals.myAll / 20)} juz`}
-              />
-              <StatCard
-                label={monthName}
-                value={totals.myMonth}
-                sub={`${totals.myLastMonth} last month`}
+                onInfo={() => setShowCoverage(true)}
               />
               <StatCard label="Current streak" value={streak} sub="days" />
               <StatCard label="Longest streak" value={longest} sub="days" />
+              <StatCard
+                label="This week"
+                value={weekCount}
+                sub={`entries · since ${shortDate(thisWeekDates[0])}`}
+              />
             </>
           ) : (
             <>
@@ -597,19 +670,124 @@ export function StatsClient({
                 label="All-time pages"
                 value={groupRead}
                 sub={`≈ ${Math.round(groupRead / 20)} juz together`}
-              />
-              <StatCard
-                label={monthName}
-                value={totals.groupMonth}
-                sub={`${totals.groupLastMonth} last month`}
+                onInfo={() => setShowCoverage(true)}
               />
               <StatCard
                 label="Logged today"
                 value={`${loggedTodayCount}/${memberCount}`}
                 sub="members"
               />
-              <StatCard label="This week" value={weekCount} sub="entries" />
+              <StatCard
+                label="This week"
+                value={weekCount}
+                sub={`entries · since ${shortDate(thisWeekDates[0])}`}
+              />
+              <StatCard
+                label="Khatmahs"
+                value={khatmahs}
+                sub="completed together"
+              />
             </>
+          )}
+        </div>
+
+        {/* ── Month browser: page back through any past month ── */}
+        <div className="rounded-2xl bg-surface p-4 shadow-e1">
+          <div className="flex items-center justify-between">
+            <button
+              onClick={() => setMonth(addMonths(month, -1))}
+              disabled={!canGoBack}
+              aria-label="Previous month"
+              className="grid size-9 shrink-0 place-items-center rounded-xl bg-surface-2 text-muted transition-opacity disabled:opacity-30"
+            >
+              <ChevronLeft className="size-5" />
+            </button>
+            <div className="min-w-0 text-center">
+              <p className="text-callout font-semibold">{monthName}</p>
+              <p className="text-caption text-faint">
+                {isThisMonth ? `1–${+today.slice(8, 10)} so far` : "full month"}
+              </p>
+            </div>
+            <button
+              onClick={() => setMonth(addMonths(month, 1))}
+              disabled={isThisMonth}
+              aria-label="Next month"
+              className="grid size-9 shrink-0 place-items-center rounded-xl bg-surface-2 text-muted transition-opacity disabled:opacity-30"
+            >
+              <ChevronRight className="size-5" />
+            </button>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <span className="text-display tabular-nums">
+              {scope === "mine" ? totals.myMonth : totals.groupMonth}
+            </span>
+            <span className="text-callout text-muted">
+              pages {scope === "mine" ? "read" : "read together"}
+            </span>
+            <span className="text-footnote text-faint">
+              ≈{" "}
+              {Math.round(
+                (scope === "mine" ? totals.myMonth : totals.groupMonth) / 20,
+              )}{" "}
+              juz
+            </span>
+          </div>
+          <p className="mt-0.5 text-footnote text-faint">
+            {prevMonthName}:{" "}
+            {scope === "mine" ? totals.myPrevMonth : totals.groupPrevMonth} pages
+            {monthActiveDays > 0 && ` · active on ${monthActiveDays} days`}
+          </p>
+
+          {monthPages === 0 ? (
+            <p className="mt-4 text-footnote text-faint">
+              Nothing logged in {monthName}.
+            </p>
+          ) : (
+            <div className="mt-3 h-40">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={monthBar}
+                  margin={{ top: 4, right: 0, bottom: 0, left: -28 }}
+                >
+                  <CartesianGrid
+                    vertical={false}
+                    stroke={colors.grid}
+                    strokeDasharray="3 3"
+                  />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fontSize: 9, fill: colors.tick }}
+                    interval={monthBar.length > 20 ? 4 : 2}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 10, fill: colors.tick }}
+                    axisLine={false}
+                    tickLine={false}
+                    width={40}
+                  />
+                  <Tooltip
+                    content={({ active, payload }) => (
+                      <TooltipCard
+                        active={active}
+                        label={payload?.[0]?.payload?.full}
+                        value={payload?.[0]?.value as number}
+                        suffix="pages"
+                      />
+                    )}
+                  />
+                  <Bar
+                    dataKey="pages"
+                    fill={colors.accent}
+                    radius={[6, 6, 0, 0]}
+                    maxBarSize={14}
+                    isAnimationActive={false}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           )}
         </div>
 
@@ -730,7 +908,7 @@ export function StatsClient({
               ))}
             </div>
             <p className="mt-3 text-caption text-faint">
-              Pages this month · every entry type counts
+              Pages in {monthName} · every entry type counts
             </p>
           </Card>
         )}
@@ -754,70 +932,8 @@ export function StatsClient({
           </Card>
         )}
 
-        {/* ── GROUP: pages per day ── */}
-        {scope === "group" && (
-          <Card title="Group pages · last 14 days">
-            {totalPages14 === 0 ? (
-              <Empty>
-                No pages logged yet. Every entry — reading, sabak, sabak para,
-                and dhor — counts toward the group khatmah.
-              </Empty>
-            ) : (
-              <>
-                <div className="mb-2 flex items-baseline gap-2">
-                  <span className="text-title2 tabular-nums">
-                    {totalPages14}
-                  </span>
-                  <span className="text-footnote text-muted">
-                    pages · ≈ {Math.round(totalPages14 / 20)} juz
-                  </span>
-                </div>
-                <ResponsiveContainer width="100%" height={170}>
-                  <BarChart
-                    data={pagesBar}
-                    margin={{ top: 8, right: 4, bottom: 0, left: -24 }}
-                  >
-                    <CartesianGrid vertical={false} stroke={colors.grid} />
-                    <XAxis
-                      dataKey="label"
-                      tick={{ fill: colors.tick, fontSize: 11 }}
-                      tickLine={false}
-                      axisLine={false}
-                      interval={1}
-                    />
-                    <YAxis
-                      tick={{ fill: colors.tick, fontSize: 11 }}
-                      tickLine={false}
-                      axisLine={false}
-                      width={32}
-                    />
-                    <Tooltip
-                      cursor={{ fill: colors.surface2 }}
-                      content={({ active, payload }) => (
-                        <TooltipCard
-                          active={active}
-                          label={payload?.[0]?.payload?.full}
-                          value={payload?.[0]?.value as number}
-                          suffix="pages"
-                        />
-                      )}
-                    />
-                    <Bar
-                      dataKey="pages"
-                      isAnimationActive={false}
-                      fill={colors.accent}
-                      radius={[6, 6, 0, 0]}
-                      maxBarSize={18}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
-              </>
-            )}
-          </Card>
-        )}
-
         {/* Entries heatmap */}
-        <Card title="Entries · last 5 weeks">
+        <Card title="Entries · last 5 weeks (Mon–Sun)">
           {totalEntries === 0 ? (
             <Empty>No entries in this view yet.</Empty>
           ) : (
@@ -872,66 +988,7 @@ export function StatsClient({
         {/* ── MINE: daily pages + weekly trend ── */}
         {scope === "mine" && (
           <>
-            <Card title="Pages read · last 14 days">
-              {totalPages14 === 0 ? (
-                <Empty>
-                  No pages logged in this view. Add an amount when you log to
-                  track pages.
-                </Empty>
-              ) : (
-                <>
-                  <div className="mb-2 flex items-baseline gap-2">
-                    <span className="text-title2 tabular-nums">
-                      {totalPages14}
-                    </span>
-                    <span className="text-footnote text-muted">
-                      pages · ≈ {Math.round(totalPages14 / 20)} juz
-                    </span>
-                  </div>
-                  <ResponsiveContainer width="100%" height={170}>
-                    <BarChart
-                      data={pagesBar}
-                      margin={{ top: 8, right: 4, bottom: 0, left: -24 }}
-                    >
-                      <CartesianGrid vertical={false} stroke={colors.grid} />
-                      <XAxis
-                        dataKey="label"
-                        tick={{ fill: colors.tick, fontSize: 11 }}
-                        tickLine={false}
-                        axisLine={false}
-                        interval={1}
-                      />
-                      <YAxis
-                        tick={{ fill: colors.tick, fontSize: 11 }}
-                        tickLine={false}
-                        axisLine={false}
-                        width={32}
-                      />
-                      <Tooltip
-                        cursor={{ fill: colors.surface2 }}
-                        content={({ active, payload }) => (
-                          <TooltipCard
-                            active={active}
-                            label={payload?.[0]?.payload?.full}
-                            value={payload?.[0]?.value as number}
-                            suffix="pages"
-                          />
-                        )}
-                      />
-                      <Bar
-                        dataKey="pages"
-                        isAnimationActive={false}
-                        fill={colors.accent}
-                        radius={[6, 6, 0, 0]}
-                        maxBarSize={18}
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </>
-              )}
-            </Card>
-
-            <Card title="Weekly pages · last 8 weeks">
+            <Card title="Weekly pages · last 8 weeks (Mon–Sun)">
               {weeklyTotal === 0 ? (
                 <Empty>Log a few weeks of pages to see your trend here.</Empty>
               ) : (
@@ -1025,6 +1082,46 @@ export function StatsClient({
           </Card>
         )}
       </div>
+
+      {/* Where these numbers come from — totals only count what was logged. */}
+      <Sheet
+        open={showCoverage}
+        onClose={() => setShowCoverage(false)}
+        labelledBy="coverage-title"
+      >
+        <div className="px-5 pt-2 pb-2">
+          <h2 id="coverage-title" className="text-title2">
+            About these numbers
+          </h2>
+          <div className="mt-4 space-y-3 text-subhead text-muted">
+            <p>
+              Every total here is built from what’s been logged in Iqra — nothing
+              else. If you read without logging it, or started reading before
+              joining, that isn’t counted.
+            </p>
+            <p>
+              So treat these as{" "}
+              <b className="font-semibold text-foreground">
+                a record of what we’ve tracked together
+              </b>
+              , not a complete account of what anyone has read. The real number
+              is only ever higher.
+            </p>
+            <p>
+              Pages are normalised to the 604-page Uthmani mushaf, so a juz
+              counts as 20 pages and a quarter as 5. Entries logged in ayahs
+              don’t carry a page count and sit outside these totals.
+            </p>
+          </div>
+          <Button
+            fullWidth
+            className="mt-6"
+            onClick={() => setShowCoverage(false)}
+          >
+            Got it
+          </Button>
+        </div>
+      </Sheet>
     </div>
   );
 }
@@ -1061,14 +1158,28 @@ function StatCard({
   label,
   value,
   sub,
+  onInfo,
 }: {
   label: string;
   value: number | string;
   sub: string;
+  /** When set, shows an info affordance explaining where the number comes from. */
+  onInfo?: () => void;
 }) {
   return (
     <div className="rounded-2xl bg-surface p-4 shadow-e1">
-      <p className="text-footnote font-medium text-muted">{label}</p>
+      <div className="flex items-start justify-between gap-1">
+        <p className="text-footnote font-medium text-muted">{label}</p>
+        {onInfo && (
+          <button
+            onClick={onInfo}
+            aria-label={`About ${label}`}
+            className="-mr-1 -mt-0.5 grid size-6 shrink-0 place-items-center rounded-full text-faint"
+          >
+            <Info className="size-3.5" />
+          </button>
+        )}
+      </div>
       <p className="mt-2 text-title1 tabular-nums">{value}</p>
       <p className="text-footnote text-faint">{sub}</p>
     </div>

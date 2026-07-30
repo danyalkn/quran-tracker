@@ -179,6 +179,91 @@ export function lastNDaysEndingOn(endYmd: string, n: number): string[] {
   return out.reverse();
 }
 
+/* ── Calendar periods ───────────────────────────────────────────────────────
+ * Weeks and months are real calendar periods, not rolling N-day windows: the
+ * current week runs Monday → today, the current month runs the 1st → today,
+ * and past periods are whole. A rolling window answers "the last 7 days",
+ * which is a different (and less intuitive) question than "this week". */
+
+/** Monday of the week containing `ymd` (ISO weeks — Monday is day 1). */
+export function startOfWeek(ymd: string): string {
+  const d = new Date(`${ymd}T12:00:00`);
+  // getDay(): 0=Sun … 6=Sat. Sunday belongs to the week that began 6 days ago.
+  const back = (d.getDay() + 6) % 7;
+  d.setDate(d.getDate() - back);
+  return d.toLocaleDateString("en-CA");
+}
+
+/** Every date in the week containing `ymd`, Monday → Sunday. */
+export function weekDates(ymd: string): string[] {
+  const start = startOfWeek(ymd);
+  const out: string[] = [start];
+  for (let i = 1; i < 7; i++) out.push(nextYmd(out[i - 1]));
+  return out;
+}
+
+/** The week containing `ymd`, but never past `upTo` (so the current week ends
+ *  today rather than running into the future). */
+export function weekDatesUpTo(ymd: string, upTo: string): string[] {
+  return weekDates(ymd).filter((d) => d <= upTo);
+}
+
+/** Monday of the week `n` weeks before the one containing `ymd`. */
+export function addWeeks(ymd: string, n: number): string {
+  const d = new Date(`${startOfWeek(ymd)}T12:00:00`);
+  d.setDate(d.getDate() + n * 7);
+  return d.toLocaleDateString("en-CA");
+}
+
+/** Month key ("YYYY-MM") of a local date string. */
+export function monthKey(ymd: string): string {
+  return ymd.slice(0, 7);
+}
+
+/** Shift a "YYYY-MM" key by `n` months. */
+export function addMonths(key: string, n: number): string {
+  const d = new Date(`${key}-01T12:00:00`);
+  d.setMonth(d.getMonth() + n);
+  return d.toLocaleDateString("en-CA").slice(0, 7);
+}
+
+/** Every date in month `key` ("YYYY-MM"), 1st → last, capped at `upTo`. */
+export function monthDates(key: string, upTo?: string): string[] {
+  const [y, m] = [+key.slice(0, 4), +key.slice(5, 7)];
+  // Day 0 of the next month is the last day of this one.
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const out: string[] = [];
+  for (let day = 1; day <= last; day++) {
+    const ymd = `${key}-${String(day).padStart(2, "0")}`;
+    if (upTo && ymd > upTo) break;
+    out.push(ymd);
+  }
+  return out;
+}
+
+/** "July" for the current year, "July 2025" otherwise. */
+export function monthLabel(key: string, todayYmd: string): string {
+  const d = new Date(`${key}-01T12:00:00`);
+  const sameYear = key.slice(0, 4) === todayYmd.slice(0, 4);
+  return d.toLocaleDateString("en-GB", {
+    month: "long",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
+}
+
+/** "6–12 Jul" style label for a week starting on `startYmd`. */
+export function weekRangeLabel(startYmd: string, endYmd: string): string {
+  const a = new Date(`${startYmd}T12:00:00`);
+  const b = new Date(`${endYmd}T12:00:00`);
+  const sameMonth = a.getMonth() === b.getMonth();
+  const left = a.toLocaleDateString("en-GB", {
+    day: "numeric",
+    ...(sameMonth ? {} : { month: "short" }),
+  });
+  const right = b.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  return `${left}–${right}`;
+}
+
 /** "6 Jun" short date for a local date string. */
 export function shortDate(ymd: string): string {
   return new Date(`${ymd}T12:00:00`).toLocaleDateString("en-GB", {
