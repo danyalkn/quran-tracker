@@ -120,8 +120,7 @@ export async function syncPushSubscription(): Promise<void> {
       !("serviceWorker" in navigator) ||
       !("PushManager" in window) ||
       !VAPID_PUBLIC_KEY ||
-      Notification.permission !== "granted" ||
-      localStorage.getItem(ENABLED_FLAG) !== "1"
+      Notification.permission !== "granted"
     ) {
       return;
     }
@@ -139,6 +138,18 @@ export async function syncPushSubscription(): Promise<void> {
     if (!reg) return;
 
     let sub = await reg.pushManager.getSubscription();
+
+    // Devices that enabled push before ENABLED_FLAG existed have no flag but
+    // do have a live subscription (disablePush always unsubscribes) — adopt
+    // them. Without a flag AND without a subscription, the user never turned
+    // push on here: do nothing.
+    const flagged = localStorage.getItem(ENABLED_FLAG) === "1";
+    if (!flagged) {
+      if (!sub) return;
+      try {
+        localStorage.setItem(ENABLED_FLAG, "1");
+      } catch {}
+    }
 
     // Rotate proactively when the browser reports an imminent expiry.
     if (sub?.expirationTime && sub.expirationTime - Date.now() < 24 * 60 * 60 * 1000) {
