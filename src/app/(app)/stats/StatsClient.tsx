@@ -39,6 +39,7 @@ import {
   dayLabel,
 } from "@/lib/dates";
 import { cn } from "@/lib/cn";
+import { Avatar } from "@/components/ui/Avatar";
 
 type Scope = "mine" | "group";
 type Filter = "all" | "sabak" | "revision";
@@ -246,10 +247,6 @@ export function StatsClient({
 
   const totalEntries = chartEntries.length;
 
-  // Lifetime (within loaded window) totals for the current scope.
-  const totalEntriesAll = scoped.length;
-  const totalPagesAll = pagesOf(scoped);
-
   // ── Group khatmah (all-time, every entry type) ──────────────────────────
   // pages_equiv already converts juz/quarter/hizb → pages; page amounts are
   // raw pages; ayah-only entries contribute nothing.
@@ -257,6 +254,90 @@ export function StatsClient({
   const khatmahs = Math.floor(groupRead / KHATMAH_PAGES);
   const khatmahProgress = +(groupRead - khatmahs * KHATMAH_PAGES).toFixed(1);
   const khatmahPct = Math.min(100, (khatmahProgress / KHATMAH_PAGES) * 100);
+
+  // ── All-time & calendar-month totals (true all-time: readingAll has no
+  // date window, unlike `entries` which is capped at 180 days) ─────────────
+  const totals = useMemo(() => {
+    const thisM = today.slice(0, 7);
+    const firstOfMonth = new Date(`${thisM}-01T12:00:00`);
+    firstOfMonth.setMonth(firstOfMonth.getMonth() - 1);
+    const lastM = firstOfMonth.toLocaleDateString("en-CA").slice(0, 7);
+
+    const per = new Map<string, { all: number; month: number; lastMonth: number }>();
+    let groupMonth = 0;
+    let groupLastMonth = 0;
+    for (const r of readingAll) {
+      const p = r.pages_equiv ? +r.pages_equiv : 0;
+      if (!p) continue;
+      const rec = per.get(r.user_id) ?? { all: 0, month: 0, lastMonth: 0 };
+      rec.all += p;
+      const key = localDate(r.logged_at, tz).slice(0, 7);
+      if (key === thisM) {
+        rec.month += p;
+        groupMonth += p;
+      } else if (key === lastM) {
+        rec.lastMonth += p;
+        groupLastMonth += p;
+      }
+      per.set(r.user_id, rec);
+    }
+
+    const board = members
+      .map((m) => {
+        const rec = per.get(m.user_id);
+        return {
+          member: m,
+          all: +(rec?.all ?? 0).toFixed(1),
+          month: +(rec?.month ?? 0).toFixed(1),
+        };
+      })
+      .sort((a, b) => b.month - a.month || b.all - a.all);
+
+    const mine = per.get(userId);
+    return {
+      board,
+      maxMonth: Math.max(1, ...board.map((b) => b.month)),
+      myAll: +(mine?.all ?? 0).toFixed(1),
+      myMonth: +(mine?.month ?? 0).toFixed(1),
+      myLastMonth: +(mine?.lastMonth ?? 0).toFixed(1),
+      groupMonth: +groupMonth.toFixed(1),
+      groupLastMonth: +groupLastMonth.toFixed(1),
+    };
+  }, [readingAll, members, userId, tz, today]);
+
+  const monthName = new Date(`${today.slice(0, 7)}-01T12:00:00`).toLocaleDateString(
+    "en-GB",
+    { month: "long" },
+  );
+
+  // ── Personal khatmah — bookmark position from the latest reading entry ──
+  const myKhatmah = useMemo(() => {
+    if (!reading) return null;
+    const mine = entries.filter((e) => e.user_id === userId);
+    const lastRead = mine.find(
+      (e) =>
+        (e.entry_type === "reading" || e.entry_type === "revising") && e.to_ref,
+    );
+    const page = pageFromRef(lastRead?.to_ref);
+    if (!lastRead || !page) return null;
+    const total = totalPages(lastRead.mushaf ?? "uthmani15");
+    const last14 = new Set(lastNDays(tz, 14));
+    const pace =
+      pagesOf(
+        mine.filter(
+          (e) =>
+            (e.entry_type === "reading" || e.entry_type === "revising") &&
+            last14.has(localDate(e.logged_at, tz)),
+        ),
+      ) / 14;
+    const left = total - page;
+    return {
+      page,
+      total,
+      pct: Math.min(100, (page / total) * 100),
+      etaDays: pace > 0 && left > 0 ? Math.ceil(left / pace) : null,
+    };
+  }, [reading, entries, userId, tz]);
 
   // ── Insights ──────────────────────────────────────────────────────────────
   const insights = useMemo(() => {
@@ -355,7 +436,8 @@ export function StatsClient({
           e.to_ref,
       );
       const page = pageFromRef(lastRead?.to_ref);
-      if (lastRead && page) {
+      // Reading mode gets the richer "Your khatmah" card instead.
+      if (!reading && lastRead && page) {
         const total = totalPages(lastRead.mushaf ?? "uthmani15");
         const last14 = new Set(lastNDays(tz, 14));
         const pace =
@@ -435,7 +517,7 @@ export function StatsClient({
       }
     }
     return out;
-  }, [scope, entries, userId, tz, today, mineDays, members, memberCount]);
+  }, [scope, entries, userId, tz, today, mineDays, members, memberCount, reading]);
 
   return (
     <div className="flex h-full flex-col overflow-y-auto pb-8">
@@ -494,27 +576,33 @@ export function StatsClient({
 
         {/* Stat cards */}
         <div className="grid grid-cols-2 gap-3">
-          {reading && scope === "mine" && (
-            <>
-              <StatCard
-                label="Total entries"
-                value={totalEntriesAll}
-                sub="logged"
-              />
-              <StatCard
-                label="Total pages"
-                value={totalPagesAll}
-                sub={`≈ ${Math.round(totalPagesAll / 20)} juz`}
-              />
-            </>
-          )}
           {scope === "mine" ? (
             <>
+              <StatCard
+                label="All-time pages"
+                value={totals.myAll}
+                sub={`≈ ${Math.round(totals.myAll / 20)} juz`}
+              />
+              <StatCard
+                label={monthName}
+                value={totals.myMonth}
+                sub={`${totals.myLastMonth} last month`}
+              />
               <StatCard label="Current streak" value={streak} sub="days" />
               <StatCard label="Longest streak" value={longest} sub="days" />
             </>
           ) : (
             <>
+              <StatCard
+                label="All-time pages"
+                value={groupRead}
+                sub={`≈ ${Math.round(groupRead / 20)} juz together`}
+              />
+              <StatCard
+                label={monthName}
+                value={totals.groupMonth}
+                sub={`${totals.groupLastMonth} last month`}
+              />
               <StatCard
                 label="Logged today"
                 value={`${loggedTodayCount}/${memberCount}`}
@@ -524,6 +612,30 @@ export function StatsClient({
             </>
           )}
         </div>
+
+        {/* ── MINE: personal khatmah progress from the bookmark ── */}
+        {scope === "mine" && myKhatmah && (
+          <div className="rounded-2xl bg-surface p-4 shadow-e1">
+            <div className="flex items-start justify-between">
+              <p className="text-callout font-semibold">Your khatmah</p>
+              <span className="text-caption tabular-nums text-faint">
+                page {myKhatmah.page} of {myKhatmah.total}
+              </span>
+            </div>
+            <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-surface-2">
+              <div
+                className="h-full rounded-full bg-accent transition-[width] duration-700"
+                style={{ width: `${myKhatmah.pct}%` }}
+              />
+            </div>
+            <p className="mt-1.5 text-footnote text-faint">
+              {Math.round(myKhatmah.pct)}% of the way through
+              {myKhatmah.etaDays
+                ? ` · ≈ ${myKhatmah.etaDays} days to finish at your pace`
+                : ""}
+            </p>
+          </div>
+        )}
 
         {/* ── GROUP: khatmah tracker ── */}
         {scope === "group" && (
@@ -574,6 +686,53 @@ export function StatsClient({
               </div>
             )}
           </div>
+        )}
+
+        {/* ── GROUP: leaderboard — this month + all time per member ── */}
+        {scope === "group" && (
+          <Card title={`Leaderboard · ${monthName}`}>
+            <div className="space-y-3">
+              {totals.board.map((row, i) => (
+                <div key={row.member.user_id} className="flex items-center gap-3">
+                  <span className="w-4 shrink-0 text-center text-footnote tabular-nums text-faint">
+                    {i + 1}
+                  </span>
+                  <Avatar
+                    name={row.member.display_name}
+                    src={row.member.avatar_url}
+                    size={32}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <p className="truncate text-subhead font-medium">
+                        {row.member.user_id === userId
+                          ? "You"
+                          : row.member.display_name}
+                        {i === 0 && row.month > 0 && (
+                          <Trophy className="mb-0.5 ml-1.5 inline size-3.5 text-accent" />
+                        )}
+                      </p>
+                      <p className="shrink-0 text-subhead font-semibold tabular-nums">
+                        {row.month}
+                        <span className="ml-1 font-normal text-faint">
+                          · {row.all} all time
+                        </span>
+                      </p>
+                    </div>
+                    <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-surface-2">
+                      <div
+                        className="h-full rounded-full bg-accent transition-[width] duration-500"
+                        style={{ width: `${(row.month / totals.maxMonth) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="mt-3 text-caption text-faint">
+              Pages this month · every entry type counts
+            </p>
+          </Card>
         )}
 
         {/* Insights */}
