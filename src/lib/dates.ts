@@ -253,6 +253,8 @@ export function monthLabel(key: string, todayYmd: string): string {
 
 /** "6–12 Jul" style label for a week starting on `startYmd`. */
 export function weekRangeLabel(startYmd: string, endYmd: string): string {
+  // A week-to-date range is a single day every Monday — don't print "27–27 Jul".
+  if (startYmd === endYmd) return shortDate(startYmd);
   const a = new Date(`${startYmd}T12:00:00`);
   const b = new Date(`${endYmd}T12:00:00`);
   const sameMonth = a.getMonth() === b.getMonth();

@@ -191,21 +191,26 @@ export function StatsClient({
       const d = localDate(e.logged_at, tz);
       byDay.set(d, (byDay.get(d) ?? 0) + 1);
     }
-    const max = Math.max(1, ...byDay.values());
-    type Cell = { date: string; count: number; op: number } | null;
-    const cells: Cell[] = [];
+    // Pick the rendered days first, then scale intensity to the busiest of
+    // *those*. Scaling against every day in the 180-day entries window would
+    // let one heavy day months ago (Ramadan, say) flatten the visible weeks
+    // into a uniform wash.
+    const days: (string | null)[] = [];
     for (let w = 4; w >= 0; w--) {
       for (const d of weekDates(addWeeks(today, -w))) {
         // Days after today in the current week stay blank.
-        if (d > today) {
-          cells.push(null);
-          continue;
-        }
-        const c = byDay.get(d) ?? 0;
-        cells.push({ date: d, count: c, op: c === 0 ? 0 : 0.3 + 0.7 * (c / max) });
+        days.push(d > today ? null : d);
       }
     }
-    return cells;
+    const max = Math.max(
+      1,
+      ...days.map((d) => (d === null ? 0 : (byDay.get(d) ?? 0))),
+    );
+    return days.map((d) => {
+      if (d === null) return null;
+      const c = byDay.get(d) ?? 0;
+      return { date: d, count: c, op: c === 0 ? 0 : 0.3 + 0.7 * (c / max) };
+    });
   }, [chartEntries, tz, today]);
   const [activeCell, setActiveCell] = useState<number | null>(null);
 
@@ -217,23 +222,19 @@ export function StatsClient({
       const d = localDate(e.logged_at, tz);
       byDay.set(d, (byDay.get(d) ?? 0) + (e.pages_equiv ? +e.pages_equiv : 0));
     }
-    const out: {
-      label: string;
-      full: string;
-      pages: number;
-      partial: boolean;
-    }[] = [];
+    const out: { label: string; full: string; pages: number }[] = [];
     for (let w = 7; w >= 0; w--) {
       const monday = addWeeks(today, -w);
       const dates = weekDatesUpTo(monday, today);
       const pages = +dates
         .reduce((s, d) => s + (byDay.get(d) ?? 0), 0)
         .toFixed(1);
+      const range = weekRangeLabel(monday, dates[dates.length - 1]);
       out.push({
         label: shortDate(monday),
-        full: weekRangeLabel(monday, dates[dates.length - 1]),
+        // Say so when the last bar is a week still in progress.
+        full: dates.length < 7 ? `${range} · so far` : range,
         pages,
-        partial: w === 0 && dates.length < 7,
       });
     }
     return out;
@@ -733,10 +734,15 @@ export function StatsClient({
               juz
             </span>
           </div>
+          {/* Name the month in both clauses — the active-day count belongs to
+              the selected month, not the comparison month. */}
           <p className="mt-0.5 text-footnote text-faint">
-            {prevMonthName}:{" "}
+            {monthActiveDays > 0 &&
+              `Logged on ${monthActiveDays} ${
+                monthActiveDays === 1 ? "day" : "days"
+              } in ${monthName} · `}
+            {prevMonthName} total:{" "}
             {scope === "mine" ? totals.myPrevMonth : totals.groupPrevMonth} pages
-            {monthActiveDays > 0 && ` · active on ${monthActiveDays} days`}
           </p>
 
           {monthPages === 0 ? (
