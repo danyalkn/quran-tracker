@@ -95,11 +95,13 @@ export function LogSheet({
   // shared
   const [notes, setNotes] = useState("");
   const [showNotes, setShowNotes] = useState(false);
+  const [when, setWhen] = useState<"today" | "yesterday">("today");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
     setError(null);
+    setWhen("today");
     setNotes(editing?.notes ?? "");
     setShowNotes(Boolean(editing?.notes));
 
@@ -172,6 +174,15 @@ export function LogSheet({
           : `Revising Juz ${juz} · ${portion} ${part}`;
 
   const save = () => {
+    // Backdate to yesterday evening (device-local) so streaks and per-day
+    // charts count it on the right calendar day.
+    let loggedAt: string | null = null;
+    if (when === "yesterday" && !editing) {
+      const d = new Date();
+      d.setDate(d.getDate() - 1);
+      d.setHours(20, 0, 0, 0);
+      loggedAt = d.toISOString();
+    }
     if (reading) {
       const amt = Number(pagesRead);
       if (!pagesRead.trim() || Number.isNaN(amt) || amt <= 0) {
@@ -194,6 +205,7 @@ export function LogSheet({
         part: null,
         mushaf: mush,
         notes: notes.trim() || null,
+        logged_at: loggedAt,
       });
     } else if (sabak) {
       onSave({
@@ -206,6 +218,7 @@ export function LogSheet({
         part: null,
         mushaf: null,
         notes: notes.trim() || null,
+        logged_at: loggedAt,
       });
     } else {
       // revision: Full / Half / Quarter / Pages
@@ -220,6 +233,7 @@ export function LogSheet({
         part: portion === "Half" || portion === "Quarter" ? part : null,
         mushaf: null,
         notes: notes.trim() || null,
+        logged_at: loggedAt,
       });
     }
     onClose();
@@ -417,6 +431,35 @@ export function LogSheet({
             </div>
             <p className="mt-2 px-1 text-footnote text-accent">{summary}</p>
           </>
+        )}
+
+        {/* When — backdate a forgotten entry to yesterday (new entries only) */}
+        {!editing && (
+          <div className="mt-5">
+            <div className="flex rounded-xl bg-surface-2 p-1 text-subhead">
+              {(["today", "yesterday"] as const).map((w) => (
+                <button
+                  key={w}
+                  type="button"
+                  onClick={() => setWhen(w)}
+                  className={cn(
+                    "flex-1 rounded-lg py-1.5 font-medium capitalize transition-colors",
+                    when === w
+                      ? "bg-surface text-foreground shadow-e1"
+                      : "text-muted",
+                  )}
+                >
+                  {w}
+                </button>
+              ))}
+            </div>
+            {when === "yesterday" && (
+              <p className="mt-1.5 px-1 text-footnote text-faint">
+                Forgot to log? This saves it for yesterday — your streak stays
+                honest.
+              </p>
+            )}
+          </div>
         )}
 
         {/* Notes — collapsed by default */}

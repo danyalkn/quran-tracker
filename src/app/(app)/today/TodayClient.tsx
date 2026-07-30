@@ -125,12 +125,15 @@ export function TodayClient({
 
   const handleUpdate = async (id: string, payload: NewEntry) => {
     const prev = entries;
+    // Edits never change logged_at — drop it so the spread keeps the original.
+    const { logged_at: _omit, ...fields } = payload;
+    void _omit;
     setEntries((p) =>
       p.map((e) =>
         e.id === id
           ? {
               ...e,
-              ...payload,
+              ...fields,
               pages_equiv: pagesEquiv(payload.amount, payload.unit),
             }
           : e,
@@ -187,15 +190,16 @@ export function TodayClient({
       id: tempId,
       user_id: userId,
       group_id: groupId,
-      logged_at: new Date().toISOString(),
       pages_equiv: pagesEquiv(payload.amount, payload.unit),
       ...payload,
+      logged_at: payload.logged_at ?? new Date().toISOString(),
     };
     setEntries((prev) => [optimistic, ...prev]);
 
     const base: Record<string, unknown> = {
       user_id: userId,
       group_id: groupId,
+      ...(payload.logged_at ? { logged_at: payload.logged_at } : {}),
       entry_type: payload.entry_type,
       from_ref: payload.from_ref,
       to_ref: payload.to_ref,

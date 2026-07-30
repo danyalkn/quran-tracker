@@ -78,4 +78,6 @@ export type NewEntry = {
   part: number | null;
   mushaf: MushafId | null;
   notes: string | null;
+  /** Backdated timestamp (ISO); null/absent = now. Only set for new entries. */
+  logged_at?: string | null;
 };
