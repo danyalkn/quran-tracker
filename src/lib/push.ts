@@ -54,10 +54,24 @@ export async function getPushState(): Promise<PushState> {
   return sub ? "on" : "off";
 }
 
-/** Marks that the user turned push ON for this device, so the launch-time
+/** Marks that a given user turned push ON for this device, so the launch-time
  *  re-sync knows it may silently resubscribe after the push service rotates
- *  the subscription (frequent on Android/FCM, rare on Apple's service). */
-const ENABLED_FLAG = "iqra:push-enabled";
+ *  the subscription (frequent on Android/FCM, rare on Apple's service).
+ *  Keyed per user: a browser profile shared by two accounts must not have one
+ *  account's registration silently adopted by the other. */
+const FLAG_PREFIX = "iqra:push-enabled:";
+const flagKey = (userId: string) => `${FLAG_PREFIX}${userId}`;
+
+/** Any other account that has enabled push in this browser profile. */
+function otherEnabledUser(userId: string): boolean {
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k?.startsWith(FLAG_PREFIX) && k !== flagKey(userId)) return true;
+    }
+  } catch {}
+  return false;
+}
 
 /** Request permission, subscribe, and persist the subscription. Must be called
  *  from a user gesture. Returns the resulting state. */
@@ -83,15 +97,20 @@ export async function enablePush(userId: string): Promise<PushState> {
     );
   if (error) throw error;
   try {
-    localStorage.setItem(ENABLED_FLAG, "1");
+    localStorage.setItem(flagKey(userId), "1");
   } catch {}
   return "on";
 }
 
 /** Unsubscribe this device and remove its stored subscription. */
 export async function disablePush(): Promise<PushState> {
+  // The subscription is per browser profile, so turning it off here ends it
+  // for every account that had enabled it on this device.
   try {
-    localStorage.removeItem(ENABLED_FLAG);
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k?.startsWith(FLAG_PREFIX)) localStorage.removeItem(k);
+    }
   } catch {}
   const reg = await navigator.serviceWorker.ready;
   const sub = await reg.pushManager.getSubscription();
@@ -112,7 +131,7 @@ export async function disablePush(): Promise<PushState> {
  *      reinstall, account hiccup).
  *  With permission already granted, resubscribing needs no user gesture, so
  *  every launch we re-assert the subscription and re-upsert its row. No-op
- *  unless the user enabled push on this device (ENABLED_FLAG). */
+ *  unless this user enabled push on this device. */
 export async function syncPushSubscription(): Promise<void> {
   try {
     if (
@@ -137,17 +156,17 @@ export async function syncPushSubscription(): Promise<void> {
     ]);
     if (!reg) return;
 
+    const userId = session.user.id;
     let sub = await reg.pushManager.getSubscription();
 
-    // Devices that enabled push before ENABLED_FLAG existed have no flag but
-    // do have a live subscription (disablePush always unsubscribes) — adopt
-    // them. Without a flag AND without a subscription, the user never turned
-    // push on here: do nothing.
-    const flagged = localStorage.getItem(ENABLED_FLAG) === "1";
-    if (!flagged) {
-      if (!sub) return;
+    // Devices that enabled push before the flag existed have none, but do have
+    // a live subscription (disablePush always unsubscribes) — adopt those.
+    // Never adopt when another account enabled push here: that registration is
+    // theirs, and stealing it would send their alerts to this session.
+    if (localStorage.getItem(flagKey(userId)) !== "1") {
+      if (!sub || otherEnabledUser(userId)) return;
       try {
-        localStorage.setItem(ENABLED_FLAG, "1");
+        localStorage.setItem(flagKey(userId), "1");
       } catch {}
     }
 
@@ -157,21 +176,37 @@ export async function syncPushSubscription(): Promise<void> {
       sub = null;
     }
 
-    if (!sub) {
-      sub = await reg.pushManager.subscribe({
+    const subscribe = async () =>
+      reg.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY) as BufferSource,
       });
-    }
+    if (!sub) sub = await subscribe();
 
     // Upsert is idempotent — cheap insurance against a pruned/missing row.
-    await supabase.from("push_subscriptions").upsert(
-      {
-        user_id: session.user.id,
-        subscription: sub.toJSON() as unknown as object,
-      },
-      { onConflict: "endpoint" },
-    );
+    const save = (s: PushSubscription) =>
+      supabase.from("push_subscriptions").upsert(
+        { user_id: userId, subscription: s.toJSON() as unknown as object },
+        { onConflict: "endpoint" },
+      );
+
+    // supabase-js returns errors, it doesn't throw — check, or a failure here
+    // is invisible and the "self-heal" never heals.
+    const { error } = await save(sub);
+    if (!error) return;
+
+    // 42501: this endpoint's row belongs to a different account (shared browser
+    // profile) and RLS blocks the update. Take a fresh endpoint for this user
+    // instead of failing silently every launch; the old subscription dies, so
+    // the other account's row gets pruned on its next send.
+    if (error.code === "42501") {
+      await sub.unsubscribe().catch(() => {});
+      const fresh = await subscribe();
+      const { error: retryError } = await save(fresh);
+      if (retryError) console.error("Push re-register failed:", retryError.message);
+      return;
+    }
+    console.error("Push sync failed:", error.message);
   } catch {
     // Best-effort: never block app startup on push housekeeping.
   }

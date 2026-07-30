@@ -63,6 +63,7 @@ export function TodayClient({
   );
   const [editingEntry, setEditingEntry] = useState<LogRow | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   // Confetti-on-reading preference (device-local; toggled in Settings).
   const [celebrateTick, setCelebrateTick] = useState(0);
@@ -90,10 +91,17 @@ export function TodayClient({
 
   // Most recent reading bookmark → where to start next. We store the last page
   // read but show the *next* page to pick up from (wrapping to 1 after a khatm).
-  // Resolve juz/surah in the mushaf that entry was logged in.
-  const lastReading = entries.find(
-    (x) => isReadingType(x.entry_type) && x.to_ref,
-  );
+  // Resolve juz/surah in the mushaf that entry was logged in. Pick by
+  // logged_at, not array position — a backdated entry may sit at the head
+  // optimistically but must never become the bookmark.
+  const lastReading = useMemo(() => {
+    let best: LogRow | null = null;
+    for (const x of entries) {
+      if (!isReadingType(x.entry_type) || !x.to_ref) continue;
+      if (!best || new Date(x.logged_at) > new Date(best.logged_at)) best = x;
+    }
+    return best;
+  }, [entries]);
   const lastMushaf = lastReading?.mushaf ?? DEFAULT_MUSHAF;
   const lastPage = lastReading ? pageFromRef(lastReading.to_ref) : null;
   const finished = lastPage != null && lastPage >= totalPages(lastMushaf);
@@ -177,6 +185,7 @@ export function TodayClient({
   const handleSave = async (payload: NewEntry) => {
     if (!groupId) return;
     setError(null);
+    setNotice(null);
     if (editingEntry) {
       await handleUpdate(editingEntry.id, payload);
       return;
@@ -185,6 +194,11 @@ export function TodayClient({
     if (isReadingType(payload.entry_type) && celebrateOn.current) {
       setCelebrateTick((t) => t + 1);
     }
+    // A backdated entry won't show in today's list — say so.
+    const backdated =
+      payload.logged_at != null &&
+      localDate(payload.logged_at, tz) !== today;
+    if (backdated) setNotice("Saved to yesterday.");
     const tempId = `temp-${crypto.randomUUID()}`;
     const optimistic: LogRow = {
       id: tempId,
@@ -330,6 +344,13 @@ export function TodayClient({
         </p>
       )}
 
+      {/* Backdated entries don't appear in today's list — confirm the save. */}
+      {notice && (
+        <p className="mx-5 mt-3 rounded-lg bg-accent-tint px-3 py-2 text-footnote text-accent">
+          {notice}
+        </p>
+      )}
+
       {/* Entries */}
       <div className="mt-4 flex-1 space-y-2.5 overflow-y-auto px-5 pb-28">
         {!groupId ? (
@@ -377,6 +398,7 @@ export function TodayClient({
         editing={editingEntry}
         lastReadPage={lastPage}
         mushaf={mushaf}
+        tz={tz}
       />
 
       <Celebration trigger={celebrateTick} />

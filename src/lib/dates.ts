@@ -12,6 +12,55 @@ export function todayLocal(tz: string): string {
   return localDate(new Date(), tz);
 }
 
+/** Yesterday's local date (YYYY-MM-DD) in the given timezone. */
+export function yesterdayLocal(tz: string): string {
+  return prevYmd(todayLocal(tz));
+}
+
+/** How far `tz` is ahead of UTC at a given instant, in ms. */
+function tzOffsetMs(instant: Date, tz: string): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(instant);
+  const p: Record<string, string> = {};
+  for (const part of parts) p[part.type] = part.value;
+  const asIfUtc = Date.UTC(
+    +p.year,
+    +p.month - 1,
+    +p.day,
+    +p.hour % 24, // some locales render midnight as 24
+    +p.minute,
+    +p.second,
+  );
+  return asIfUtc - instant.getTime();
+}
+
+/**
+ * ISO instant for a wall-clock time in a specific timezone — e.g. "8pm on
+ * 2026-07-28 in Asia/Karachi". Needed because backdated entries must land on
+ * the right *profile-local* day, and the device may be in another zone.
+ * Two passes so the offset is read at (close to) the target instant, which
+ * keeps it correct across DST boundaries.
+ */
+export function zonedIso(ymd: string, hour: number, tz: string): string {
+  const naive = Date.UTC(
+    +ymd.slice(0, 4),
+    +ymd.slice(5, 7) - 1,
+    +ymd.slice(8, 10),
+    hour,
+  );
+  let ts = naive - tzOffsetMs(new Date(naive), tz);
+  ts = naive - tzOffsetMs(new Date(ts), tz);
+  return new Date(ts).toISOString();
+}
+
 /** Short label like "Mon · 6 Jun" for a local date string. */
 export function dayLabel(ymd: string): string {
   // Parse as a local-noon date to avoid TZ drift on the label itself.
@@ -107,8 +156,14 @@ function nextYmd(ymd: string): string {
 
 /** The last `n` local dates (YYYY-MM-DD), oldest → newest, ending today. */
 export function lastNDays(tz: string, n: number): string[] {
+  return lastNDaysEndingOn(todayLocal(tz), n);
+}
+
+/** As `lastNDays`, but ending on an explicit date. Prefer this inside memos:
+ *  the window then depends on a value React can see, not a hidden clock read. */
+export function lastNDaysEndingOn(endYmd: string, n: number): string[] {
   const out: string[] = [];
-  let cursor = todayLocal(tz);
+  let cursor = endYmd;
   for (let i = 0; i < n; i++) {
     out.push(cursor);
     cursor = prevYmd(cursor);

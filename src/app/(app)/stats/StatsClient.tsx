@@ -35,6 +35,7 @@ import {
   currentStreak,
   longestStreak,
   lastNDays,
+  lastNDaysEndingOn,
   shortDate,
   dayLabel,
 } from "@/lib/dates";
@@ -321,7 +322,7 @@ export function StatsClient({
     const page = pageFromRef(lastRead?.to_ref);
     if (!lastRead || !page) return null;
     const total = totalPages(lastRead.mushaf ?? "uthmani15");
-    const last14 = new Set(lastNDays(tz, 14));
+    const last14 = new Set(lastNDaysEndingOn(today, 14));
     const pace =
       pagesOf(
         mine.filter(
@@ -337,7 +338,7 @@ export function StatsClient({
       pct: Math.min(100, (page / total) * 100),
       etaDays: pace > 0 && left > 0 ? Math.ceil(left / pace) : null,
     };
-  }, [reading, entries, userId, tz]);
+  }, [reading, entries, userId, tz, today]);
 
   // ── Insights ──────────────────────────────────────────────────────────────
   const insights = useMemo(() => {

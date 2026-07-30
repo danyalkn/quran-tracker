@@ -21,6 +21,7 @@ import {
   DEFAULT_MUSHAF,
   type MushafId,
 } from "@/lib/mushaf";
+import { yesterdayLocal, zonedIso } from "@/lib/dates";
 import { cn } from "@/lib/cn";
 
 type Portion = "Full" | "Half" | "Quarter" | "Pages";
@@ -62,6 +63,7 @@ export function LogSheet({
   editing,
   lastReadPage,
   mushaf = DEFAULT_MUSHAF,
+  tz,
 }: {
   open: boolean;
   onClose: () => void;
@@ -73,6 +75,8 @@ export function LogSheet({
   lastReadPage?: number | null;
   /** The reader's mushaf — drives the page→juz/surah map and page range. */
   mushaf?: MushafId;
+  /** Profile timezone — backdating must land on the right local day. */
+  tz: string;
 }) {
   // An entry being edited keeps its own mushaf; otherwise use the user's.
   const mush: MushafId = editing?.mushaf ?? mushaf;
@@ -136,6 +140,8 @@ export function LogSheet({
     setStoppedAt("");
   }, [open, initialType, editing]);
 
+  const backdating = when === "yesterday" && !editing;
+
   const partOptions =
     portion === "Half" ? [1, 2] : portion === "Quarter" ? [1, 2, 3, 4] : [];
 
@@ -152,8 +158,12 @@ export function LogSheet({
     ? clampPage(mush, Math.round((lastReadPage ?? 0) + readAmt))
     : null;
   const autoLoc = autoLastPage != null ? locatePage(mush, autoLastPage) : null;
+  // Never auto-advance a backdated entry: `lastReadPage` is where the user is
+  // *now*, so adding yesterday's pages onto it would push the bookmark past
+  // their real position and double-count on the next reading.
+  const autoAdvance = autoPage && !backdating;
   // The location we'll actually store for this reading.
-  const finalLoc = autoPage ? autoLoc : readLoc;
+  const finalLoc = autoAdvance ? autoLoc : readLoc;
 
   // Numbers only — up to 2 decimal places for pages, integer for the page no.
   const onPagesReadChange = (v: string) => {
@@ -174,15 +184,10 @@ export function LogSheet({
           : `Revising Juz ${juz} · ${portion} ${part}`;
 
   const save = () => {
-    // Backdate to yesterday evening (device-local) so streaks and per-day
-    // charts count it on the right calendar day.
-    let loggedAt: string | null = null;
-    if (when === "yesterday" && !editing) {
-      const d = new Date();
-      d.setDate(d.getDate() - 1);
-      d.setHours(20, 0, 0, 0);
-      loggedAt = d.toISOString();
-    }
+    // Backdate to 8pm yesterday *in the profile's timezone* — every consumer
+    // (streaks, daily bars, feed grouping) buckets by that zone, not the
+    // device's, and the two can differ.
+    const loggedAt = backdating ? zonedIso(yesterdayLocal(tz), 20, tz) : null;
     if (reading) {
       const amt = Number(pagesRead);
       if (!pagesRead.trim() || Number.isNaN(amt) || amt <= 0) {
@@ -190,11 +195,11 @@ export function LogSheet({
         return;
       }
       // Manual last page is optional, but if entered it must be a real page.
-      if (!autoPage && stoppedAt.trim() && !readLoc) {
+      if (!autoAdvance && stoppedAt.trim() && !readLoc) {
         setError(`Last page must be 1–${maxPage}, or leave it blank.`);
         return;
       }
-      const loc = autoPage ? autoLoc : readLoc;
+      const loc = finalLoc;
       onSave({
         entry_type: initialType,
         from_ref: null,
@@ -275,8 +280,14 @@ export function LogSheet({
               </div>
             </div>
             <div className="w-full">
-              {/* Auto-advance the bookmark: last page = previous + pages read. */}
-              <div className="flex items-center gap-3 rounded-2xl bg-surface p-3.5 shadow-e1">
+              {/* Auto-advance the bookmark: last page = previous + pages read.
+                  Hidden while backdating — see `autoAdvance`. */}
+              <div
+                className={cn(
+                  "flex items-center gap-3 rounded-2xl bg-surface p-3.5 shadow-e1",
+                  backdating && "hidden",
+                )}
+              >
                 <div className="min-w-0 flex-1">
                   <p className="text-callout font-semibold">
                     Continue from last page
@@ -308,7 +319,7 @@ export function LogSheet({
                 </button>
               </div>
 
-              {autoPage ? (
+              {autoAdvance ? (
                 <div className="mt-3 flex h-9 items-center justify-center">
                   {finalLoc ? (
                     <span className="inline-flex items-center gap-2 rounded-full bg-accent-tint px-3.5 py-1.5 text-footnote font-medium text-accent">
@@ -327,7 +338,9 @@ export function LogSheet({
               ) : (
                 <div className="mt-3 flex flex-col items-center gap-2">
                   <FieldLabel className="!mb-0">
-                    Last page you read (optional)
+                    {backdating
+                      ? "Last page you read yesterday (optional)"
+                      : "Last page you read (optional)"}
                   </FieldLabel>
                   <div className="w-44">
                     <Input

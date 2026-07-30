@@ -35,8 +35,11 @@ export async function getGroupPagesAllTime(
     .from("log_entries")
     .select("user_id, logged_at, pages_equiv")
     .eq("group_id", groupId)
-    .order("logged_at", { ascending: true })
-    // Cap is a safety valve; a 5-person group is ~2.7 years from hitting it.
+    // Newest first: the cap is a safety valve, and if it ever bites it must
+    // shave the oldest rows (a slight all-time undercount) rather than the
+    // newest — the month-scoped stats and leaderboard read from these rows and
+    // would otherwise silently read zero.
+    .order("logged_at", { ascending: false })
     .limit(10000);
   return (data as ReadingRow[] | null) ?? [];
 }

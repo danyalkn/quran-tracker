@@ -43,6 +43,8 @@ self.addEventListener("pushsubscriptionchange", (event) => {
       .then((sub) =>
         fetch("/api/push/resubscribe", {
           method: "POST",
+          // The route authenticates via the session cookie.
+          credentials: "same-origin",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ oldEndpoint, subscription: sub.toJSON() }),
         }),
