@@ -2,7 +2,7 @@ import { useRef } from "react";
 
 /**
  * Touch handlers that blur the focused field (dismissing the soft keyboard)
- * on a deliberate downward swipe. Spread onto a bar the user can drag down —
+ * on a deliberate downward swipe. Spread onto a bar the user can drag down -
  * the composer or the tab bar.
  */
 export function useSwipeDownDismiss(threshold = 40) {

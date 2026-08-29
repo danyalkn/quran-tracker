@@ -1,7 +1,7 @@
 import { cn } from "@/lib/cn";
 import { ENTRY_META, type EntryType } from "@/lib/entries";
 
-/** Entry-type badge. New bucket = accent tint, Revision = neutral — keeps the
+/** Entry-type badge. New bucket = accent tint, Revision = neutral - keeps the
  *  one-accent discipline (accent only ever means "new"). */
 export function Badge({
   type,

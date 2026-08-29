@@ -160,7 +160,7 @@ export async function syncPushSubscription(): Promise<void> {
     let sub = await reg.pushManager.getSubscription();
 
     // Devices that enabled push before the flag existed have none, but do have
-    // a live subscription (disablePush always unsubscribes) — adopt those.
+    // a live subscription (disablePush always unsubscribes) - adopt those.
     // Never adopt when another account enabled push here: that registration is
     // theirs, and stealing it would send their alerts to this session.
     if (localStorage.getItem(flagKey(userId)) !== "1") {
@@ -183,14 +183,14 @@ export async function syncPushSubscription(): Promise<void> {
       });
     if (!sub) sub = await subscribe();
 
-    // Upsert is idempotent — cheap insurance against a pruned/missing row.
+    // Upsert is idempotent - cheap insurance against a pruned/missing row.
     const save = (s: PushSubscription) =>
       supabase.from("push_subscriptions").upsert(
         { user_id: userId, subscription: s.toJSON() as unknown as object },
         { onConflict: "endpoint" },
       );
 
-    // supabase-js returns errors, it doesn't throw — check, or a failure here
+    // supabase-js returns errors, it doesn't throw - check, or a failure here
     // is invisible and the "self-heal" never heals.
     const { error } = await save(sub);
     if (!error) return;

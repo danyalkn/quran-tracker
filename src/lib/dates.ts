@@ -43,7 +43,7 @@ function tzOffsetMs(instant: Date, tz: string): number {
 }
 
 /**
- * ISO instant for a wall-clock time in a specific timezone — e.g. "8pm on
+ * ISO instant for a wall-clock time in a specific timezone - e.g. "8pm on
  * 2026-07-28 in Asia/Karachi". Needed because backdated entries must land on
  * the right *profile-local* day, and the device may be in another zone.
  * Two passes so the offset is read at (close to) the target instant, which
@@ -61,7 +61,7 @@ export function zonedIso(ymd: string, hour: number, tz: string): string {
 
   // A spring-forward can make the requested wall time nonexistent (e.g. 00:00
   // in Santiago on a transition date), which would resolve onto the previous
-  // day — the one thing this helper must never do. Step forward until the
+  // day - the one thing this helper must never do. Step forward until the
   // instant really is on the intended local date.
   for (let i = 0; i < 4 && localDate(ts, tz) !== ymd; i++) {
     ts += 60 * 60 * 1000;
@@ -185,7 +185,7 @@ export function lastNDaysEndingOn(endYmd: string, n: number): string[] {
  * and past periods are whole. A rolling window answers "the last 7 days",
  * which is a different (and less intuitive) question than "this week". */
 
-/** Monday of the week containing `ymd` (ISO weeks — Monday is day 1). */
+/** Monday of the week containing `ymd` (ISO weeks - Monday is day 1). */
 export function startOfWeek(ymd: string): string {
   const d = new Date(`${ymd}T12:00:00`);
   // getDay(): 0=Sun … 6=Sat. Sunday belongs to the week that began 6 days ago.
@@ -253,7 +253,7 @@ export function monthLabel(key: string, todayYmd: string): string {
 
 /** "6–12 Jul" style label for a week starting on `startYmd`. */
 export function weekRangeLabel(startYmd: string, endYmd: string): string {
-  // A week-to-date range is a single day every Monday — don't print "27–27 Jul".
+  // A week-to-date range is a single day every Monday - don't print "27–27 Jul".
   if (startYmd === endYmd) return shortDate(startYmd);
   const a = new Date(`${startYmd}T12:00:00`);
   const b = new Date(`${endYmd}T12:00:00`);

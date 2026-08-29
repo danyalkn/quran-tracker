@@ -7,7 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { MUSHAF_OPTIONS, type MushafId } from "@/lib/mushaf";
 import { cn } from "@/lib/cn";
 
-/** Pick the mushaf you read — drives the reading bookmark's page→juz/surah map
+/** Pick the mushaf you read - drives the reading bookmark's page→juz/surah map
  *  and page range. Stored on the profile so it follows you across devices. */
 export function MushafSelect({
   userId,

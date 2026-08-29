@@ -1,7 +1,7 @@
 import { BookOpen } from "lucide-react";
 import { cn } from "@/lib/cn";
 
-/** The Iqra brand mark — open book on the accent, matching the app icon. */
+/** The Iqra brand mark - open book on the accent, matching the app icon. */
 export function AppMark({
   size = 64,
   className,

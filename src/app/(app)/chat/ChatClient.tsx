@@ -100,7 +100,7 @@ export function ActionOverlay({
 }) {
   const PILL_W = 272;
   const MENU_W = 168;
-  // Portal-only component — never render during SSR.
+  // Portal-only component - never render during SSR.
   if (typeof document === "undefined") return null;
   const vw = window.innerWidth;
   const clampX = (x: number, w: number) => Math.min(Math.max(x, 8), vw - w - 8);
@@ -371,12 +371,12 @@ export function ChatClient({
   }, []);
 
   // Re-fetch + merge messages. Heals gaps left when the realtime socket drops
-  // (backgrounded PWA, network blip) — missed messages reappear without the
+  // (backgrounded PWA, network blip) - missed messages reappear without the
   // user having to manually refresh.
   //
   // Failure handling matters more than the fetch: after an iOS suspend the
   // client's access token is often expired, and supabase-js then either
-  // errors (401) or — if the session is gone — silently falls back to the
+  // errors (401) or - if the session is gone - silently falls back to the
   // ANON key, where RLS returns 200 with zero rows. Both used to read as
   // "nothing new" and made every healing layer a no-op. Now: on error or a
   // suspicious empty result, force a session re-read (which refreshes an
@@ -397,7 +397,7 @@ export function ChatClient({
       if (error || data == null) {
         if (s.session) await supabase.realtime.setAuth().catch(() => {});
         ({ data, error } = await fetchPage());
-        if (error || data == null) return; // still unknown — never fake "empty"
+        if (error || data == null) return; // still unknown - never fake "empty"
       } else if (!s.session) {
         // 200 + empty with no session = anon-key downgrade, not an empty chat.
         return;
@@ -428,7 +428,7 @@ export function ChatClient({
 
   // Same healing pattern for reactions: refetch and merge, keeping in-flight
   // optimistic rows that haven't landed server-side yet. A failed fetch must
-  // NEVER be treated as "no reactions" — that used to wipe them all.
+  // NEVER be treated as "no reactions" - that used to wipe them all.
   const syncReactions = useCallback(async () => {
     const supabase = createClient();
     const fetchAll = () =>
@@ -465,10 +465,10 @@ export function ChatClient({
   // Realtime transport. Hardened against every silent-death mode we've hit:
   // - Fresh topic per join: supabase.channel() returns an existing same-topic
   //   instance while the old one is still tearing down, and subscribing to it
-  //   silently no-ops — unique topics sidestep the remount race entirely.
+  //   silently no-ops - unique topics sidestep the remount race entirely.
   // - CHANNEL_ERROR / TIMED_OUT / CLOSED rebuild the channel with backoff
   //   after refreshing auth; errored channels never self-heal upstream
-  //   (supabase realtime-js#274 — closed "not planned"), so rejoining is ours.
+  //   (supabase realtime-js#274 - closed "not planned"), so rejoining is ours.
   // - ensureLive() (called on wake/online) force-resets the transport when
   //   the channel isn't joined or the app was suspended long enough that the
   //   socket is likely a zombie that still claims to be connected.
@@ -503,7 +503,7 @@ export function ChatClient({
         try {
           await supabase.realtime.setAuth();
         } catch {
-          /* non-fatal — join carries the token too */
+          /* non-fatal - join carries the token too */
         }
       }
       join();
@@ -579,7 +579,7 @@ export function ChatClient({
         if (status === "SUBSCRIBED") {
           joined = true;
           attempt = 0;
-          // No replay on postgres_changes — refill whatever we missed.
+          // No replay on postgres_changes - refill whatever we missed.
           syncMessages();
           syncReactions();
         } else if (
@@ -629,7 +629,7 @@ export function ChatClient({
   }, [groupId, userId, syncMessages, syncReactions]);
 
   // Wake/network handlers. Visibility loss on a phone usually means the PWA
-  // gets suspended — track how long we were hidden and do a hard transport
+  // gets suspended - track how long we were hidden and do a hard transport
   // reset when it was long enough for the socket to have died underneath us.
   useEffect(() => {
     const hiddenAt = { t: null as number | null };
@@ -1063,8 +1063,8 @@ export function ChatClient({
               <p className="text-callout font-semibold">Message notifications</p>
               <p className="text-footnote text-muted">
                 {notifyChat
-                  ? "On — you're notified for new messages."
-                  : "Off — only @mentions and replies notify you."}
+                  ? "On: you're notified for new messages."
+                  : "Off: only @mentions and replies notify you."}
               </p>
             </div>
             <button
@@ -1123,7 +1123,7 @@ export function ChatClient({
                         />
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-subhead font-medium">
-                            {u.display_name || "—"}
+                            {u.display_name || "–"}
                           </p>
                           <p className="truncate text-caption text-faint">
                             {u.email}
@@ -1316,7 +1316,7 @@ export function ChatClient({
                     </div>
                   )}
 
-                  {/* Reply context — IG puts the caption + quoted bubble above */}
+                  {/* Reply context - IG puts the caption + quoted bubble above */}
                   {msg.reply_to && (
                     <div
                       className={cn(

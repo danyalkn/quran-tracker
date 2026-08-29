@@ -5,7 +5,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./keys";
 /**
  * Server-side Supabase client (Server Components, Route Handlers, Server
  * Actions). Reads/writes the auth session via Next's cookie store. Always
- * scoped to the requesting user — RLS is the enforcement boundary, never
+ * scoped to the requesting user - RLS is the enforcement boundary, never
  * client-side filtering.
  */
 export async function createClient() {

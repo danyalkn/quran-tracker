@@ -1,12 +1,12 @@
 /** Personal insight + advice engine for the Insights page (mine scope).
  *
  * Two rules drive everything here:
- *  1. Every line is about YOUR relationship with the Quran — never a
+ *  1. Every line is about YOUR relationship with the Quran - never a
  *     comparison with another member (owner direction, 2026-08-29).
  *  2. Phrasing rotates weekly and per-person, from pools, so the card never
  *     reads like the same form letter twice. Selection is deterministic on
- *     (week, user, kind): stable within a week — no flicker between renders,
- *     no server/client hydration mismatch — different the next week.
+ *     (week, user, kind): stable within a week - no flicker between renders,
+ *     no server/client hydration mismatch - different the next week.
  *
  * Pure module: no React, no I/O. `**bold**` markers are rendered by the UI.
  */
@@ -46,7 +46,7 @@ export type InsightEntry = {
 
 const round1 = (n: number) => +n.toFixed(1);
 
-/** djb2 — tiny, deterministic, identical on server and client. */
+/** djb2 - tiny, deterministic, identical on server and client. */
 export function hashSeed(s: string): number {
   let h = 5381;
   for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
@@ -171,7 +171,7 @@ export function computeSignals(opts: {
     if (share >= 0.5) topTime = { label, share };
   }
 
-  // Best completed week ever (open week excluded — it can still grow).
+  // Best completed week ever (open week excluded - it can still grow).
   let bestWeek: PersonalSignals["bestWeek"] = null;
   {
     const currentMonday = startOfWeek(today);
@@ -206,7 +206,7 @@ export function computeSignals(opts: {
       const starts = juzStartPages(m);
       if (juz < 30) {
         // starts[juz] = first page of juz+1 (0-indexed array). The bookmark
-        // is the last page READ, so it doesn't count toward what's left —
+        // is the last page READ, so it doesn't count toward what's left -
         // on the final page of a juz there are 0 pages left, not 1.
         const pagesLeft = starts[juz] - page - 1;
         if (pagesLeft > 0) nextJuz = { juz, pagesLeft };
@@ -256,7 +256,7 @@ export function buildPersonalInsights(
   const seed = (kind: string) => seedBase + ":" + kind;
   const out: Candidate[] = [];
 
-  // 1 · Week trend — always present, leads the card.
+  // 1 · Week trend - always present, leads the card.
   {
     const { pagesThisWeek: p, pagesSameSpanLastWeek: q, spanDays } = s;
     const v = {
@@ -270,7 +270,7 @@ export function buildPersonalInsights(
     if (p === 0 && q === 0) {
       text = pick(
         [
-          "A quiet stretch — nothing logged this week or last. The next page ends it.",
+          "A quiet stretch: nothing logged this week or last. The next page ends it.",
           "Two quiet weeks side by side. One entry tonight changes the shape of this card.",
         ],
         seed("trend0"),
@@ -279,7 +279,7 @@ export function buildPersonalInsights(
       text = fill(
         pick(
           [
-            "**{p} {pw}** so far this week — by this point last week you had {q}.",
+            "**{p} {pw}** so far this week. By this point last week you had {q}.",
             "You're at **{p} {pw}** this week, ahead of last week's {q} at the same point.",
             "**{p} {pw}** down, {d} {dw} in. Last week's pace would be {q}.",
           ],
@@ -291,9 +291,9 @@ export function buildPersonalInsights(
       text = fill(
         pick(
           [
-            "**{p} {pw}** this week so far — last week you'd reached {q} by now. Plenty of week left.",
+            "**{p} {pw}** this week so far; last week you'd reached {q} by now. Plenty of week left.",
             "This week: **{p} {pw}**. Same days last week: {q}. The gap is one sitting.",
-            "You're at **{p}** against last week's {q} at this point — a single page starts the catch-up.",
+            "You're at **{p}** against last week's {q} at this point. A single page starts the catch-up.",
           ],
           seed("trendDown"),
         ),
@@ -316,7 +316,7 @@ export function buildPersonalInsights(
       text: fill(
         pick(
           [
-            "**{s} days running — your longest streak ever.** Every day now sets a new record.",
+            "**{s} days running, your longest streak ever.** Every day now sets a new record.",
             "This is uncharted: **{s} straight days**, the longest you've ever gone.",
           ],
           seed("streakRecord"),
@@ -331,7 +331,7 @@ export function buildPersonalInsights(
       text: fill(
         pick(
           [
-            "**{s} days** in a row — your record is {L}. It's catchable.",
+            "**{s} days** in a row. Your record is {L}, and it's catchable.",
             "Streak at **{s}**. The one to beat: {L} days.",
             "**{s} straight days.** {left} more matches your best run.",
           ],
@@ -347,7 +347,7 @@ export function buildPersonalInsights(
       text: fill(
         pick(
           [
-            "Your longest run is **{L} days** — day one of the next one is available tonight.",
+            "Your longest run is **{L} days**. Day one of the next one is available tonight.",
             "You've done **{L} days in a row** before. That version of you is still in there.",
           ],
           seed("streakGone"),
@@ -365,7 +365,7 @@ export function buildPersonalInsights(
       text: fill(
         pick(
           [
-            "**{n} page{pl}** left in Juz {j} — close enough to finish this week.",
+            "**{n} page{pl}** left in Juz {j}. Close enough to finish this week.",
             "Juz {j} is **{n} page{pl}** from done.",
             "You're **{n} page{pl}** from closing out Juz {j}.",
           ],
@@ -376,7 +376,7 @@ export function buildPersonalInsights(
     });
   }
 
-  // 4 · Best week — celebrate a record in progress, or dangle a close one.
+  // 4 · Best week - celebrate a record in progress, or dangle a close one.
   if (s.bestWeek) {
     if (s.pagesThisWeek > s.bestWeek.pages) {
       out.push({
@@ -385,7 +385,7 @@ export function buildPersonalInsights(
         text: fill(
           pick(
             [
-              "**Your best week ever, in progress.** {p} pages — the old record was {b}.",
+              "**Your best week ever, in progress.** {p} pages; the old record was {b}.",
               "Record broken: **{p} pages** this week, past your previous best of {b}.",
             ],
             seed("bestNow"),
@@ -400,7 +400,7 @@ export function buildPersonalInsights(
         text: fill(
           pick(
             [
-              "Your record week is **{b} pages** — you're {gap} away from it right now.",
+              "Your record week is **{b} pages**. You're {gap} away from it right now.",
               "**{gap} page{pl}** between you and your best week ever ({b}).",
             ],
             seed("bestNear"),
@@ -437,9 +437,9 @@ export function buildPersonalInsights(
       text: fill(
         pick(
           [
-            "**{day}s** carry your reading — {pages} pages all-time, more than any other day.",
+            "**{day}s** carry your reading: {pages} pages all-time, more than any other day.",
             "No day works for you like **{day}** ({pages} pages so far).",
-            "Your strongest day is **{day}** — {pct}% of everything you've read.",
+            "Your strongest day is **{day}**, with {pct}% of everything you've read.",
           ],
           seed("weekday"),
         ),
@@ -460,7 +460,7 @@ export function buildPersonalInsights(
       text: fill(
         pick(
           [
-            "Most of your reading happens **{label}** — {pct}% of your entries.",
+            "Most of your reading happens **{label}**: {pct}% of your entries.",
             "You're a **{label}** reader: {pct}% of your logging lands there.",
           ],
           seed("timeOfDay"),
@@ -490,7 +490,7 @@ export function buildPersonalInsights(
       text: fill(
         pick(
           [
-            "Logged on **{n} of the last 14** days — {phrase}.",
+            "Logged on **{n} of the last 14** days: {phrase}.",
             "**{n} of 14** recent days have an entry: {phrase}.",
           ],
           seed("consistency"),
@@ -500,7 +500,7 @@ export function buildPersonalInsights(
     });
   }
 
-  // 8 · Khatmah ETA (hifz mode only — reading mode has the khatmah card).
+  // 8 · Khatmah ETA (hifz mode only - reading mode has the khatmah card).
   if (includeEta && s.etaDays && s.bookmark) {
     out.push({
       kind: "eta",
@@ -508,7 +508,7 @@ export function buildPersonalInsights(
       text: fill(
         pick(
           [
-            "On page **{p}** ({surah}) — about **{d} day{dpl}** to the khatmah at your current pace.",
+            "On page **{p}** ({surah}), about **{d} day{dpl}** to the khatmah at your current pace.",
             "At this pace the khatmah lands in about **{d} day{dpl}**. You're on p.{p}, {surah}.",
           ],
           seed("eta"),
@@ -536,7 +536,7 @@ export function buildPersonalInsights(
 
 // ── Advice ──────────────────────────────────────────────────────────────────
 
-/** One practical, personal suggestion — rotates weekly, reacts to patterns. */
+/** One practical, personal suggestion - rotates weekly, reacts to patterns. */
 export function buildAdvice(s: PersonalSignals, seedBase: string): string {
   const seed = seedBase + ":advice";
 
@@ -544,7 +544,7 @@ export function buildAdvice(s: PersonalSignals, seedBase: string): string {
     return pick(
       [
         "Start smaller than feels worthwhile: half a page after one salah you never miss. Consistency first, volume later.",
-        "Restart with one ayah after Maghrib tonight. The point isn't the amount — it's ending the silence.",
+        "Restart with one ayah after Maghrib tonight. The point isn't the amount; it's ending the silence.",
         "Pick your easiest salah and staple one page to it. A tiny anchor beats a big plan.",
       ],
       seed,
@@ -553,7 +553,7 @@ export function buildAdvice(s: PersonalSignals, seedBase: string): string {
   if (s.topTime?.label === "late at night" && s.activeOf14 < 11) {
     return pick(
       [
-        "Your reading lives late at night — the first slot to vanish on a tired day. Try moving one page to right after Maghrib and see if the missed days shrink.",
+        "Your reading lives late at night, the first slot to vanish on a tired day. Try moving one page to right after Maghrib and see if the missed days shrink.",
         "Late-night reading is fragile reading. Anchor a page to a salah earlier in the day and the streak stops depending on how sleepy you are.",
       ],
       seed,
@@ -562,7 +562,7 @@ export function buildAdvice(s: PersonalSignals, seedBase: string): string {
   if (s.topWeekday && (s.topWeekday.day === 0 || s.topWeekday.day === 6) && s.activeOf14 < 10) {
     return pick(
       [
-        "Most of your pages come on weekends. One small weekday anchor — even half a page after work — would smooth the whole week out.",
+        "Most of your pages come on weekends. One small weekday anchor, even half a page after work, would smooth the whole week out.",
         "You read in weekend bursts. Try borrowing just one of those pages for a Tuesday; rhythm beats volume.",
       ],
       seed,
@@ -571,7 +571,7 @@ export function buildAdvice(s: PersonalSignals, seedBase: string): string {
   if (s.streak >= 3) {
     return pick(
       [
-        "Streaks die on busy days, not lazy ones. Decide now what your minimum is on a chaotic day — one ayah with attention counts.",
+        "Streaks die on busy days, not lazy ones. Decide now what your minimum is on a chaotic day; one ayah with attention counts.",
         "Protect the streak with a floor, not a goal: on the worst day, one ayah before bed keeps the thread alive.",
       ],
       seed,
@@ -580,9 +580,9 @@ export function buildAdvice(s: PersonalSignals, seedBase: string): string {
   return pick(
     [
       "Five ayahs after every salah quietly adds up to a khatmah a year.",
-      "Keep your mushaf somewhere it can look at you — out of the drawer, onto the desk.",
+      "Keep your mushaf somewhere it can look at you: out of the drawer, onto the desk.",
       "Read along while a reciter plays; it carries you further than pushing through alone.",
-      "Tie your reading to a salah you never miss — habits hold better on existing hooks.",
+      "Tie your reading to a salah you never miss; habits hold better on existing hooks.",
     ],
     seed,
   );

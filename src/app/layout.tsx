@@ -5,7 +5,7 @@ import { ServiceWorkerRegister } from "@/components/ServiceWorkerRegister";
 
 /**
  * Inter is self-hosted by next/font (served from our own domain at build
- * time). It is used ONLY as the fallback for non-Apple platforms — the font
+ * time). It is used ONLY as the fallback for non-Apple platforms - the font
  * stack in globals.css leads with -apple-system so SF renders on iOS/macOS
  * and Inter takes over on Android/Windows.
  */

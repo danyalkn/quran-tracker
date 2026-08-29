@@ -6,7 +6,7 @@ import { isSupabaseConfigured } from "./config";
 /**
  * Refreshes the Supabase auth session on every request and keeps the auth
  * cookies in sync between the request and response. Routing/redirect rules
- * are intentionally left out here — they live in middleware.ts so this stays
+ * are intentionally left out here - they live in middleware.ts so this stays
  * a pure session-refresh helper.
  */
 export async function updateSession(request: NextRequest) {

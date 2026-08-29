@@ -32,7 +32,7 @@ export function CelebrateToggle() {
         <p className="text-footnote text-muted">
           {on
             ? "Confetti + a kind word when you log a reading."
-            : "Off — log quietly."}
+            : "Off: log quietly."}
         </p>
       </div>
       <button

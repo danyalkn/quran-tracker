@@ -4,7 +4,7 @@ import { cn } from "@/lib/cn";
 
 export type Segment<T extends string> = { value: T; label: string };
 
-/** iOS-style segmented control — surface pill slides over a surface-2 track. */
+/** iOS-style segmented control - surface pill slides over a surface-2 track. */
 export function SegmentedControl<T extends string>({
   segments,
   value,

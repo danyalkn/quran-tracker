@@ -96,7 +96,7 @@ export function WheelPicker<T extends string | number>({
           >
             <span
               className={cn(
-                // colors only — transitioning font-size reflowed on every
+                // colors only - transitioning font-size reflowed on every
                 // scroll tick and made the wheel feel laggy.
                 "tabular-nums transition-colors duration-150",
                 i === active

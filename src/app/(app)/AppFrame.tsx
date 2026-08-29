@@ -7,7 +7,7 @@ import { UpdateChecker } from "@/components/UpdateChecker";
 /**
  * Authenticated app shell that keeps content above the on-screen keyboard.
  *
- * iOS Safari does NOT shrink the layout viewport when the keyboard opens — only
+ * iOS Safari does NOT shrink the layout viewport when the keyboard opens - only
  * the *visual* viewport shrinks. So we keep the frame full-height (`fixed
  * inset-0`) and pad the bottom by exactly the keyboard overlap, measured as
  * `innerHeight − visualViewport.height − offsetTop`. Content then lays out in

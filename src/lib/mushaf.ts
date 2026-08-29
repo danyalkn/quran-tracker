@@ -1,8 +1,8 @@
 // ════════════════════════════════════════════════════════════════════════
-// Iqra — Mushaf map (standard 604-page King Fahd / Madani 15-line Uthmani).
+// Iqra - Mushaf map (standard 604-page King Fahd / Madani 15-line Uthmani).
 //
 // Surah start pages + juz start pages are for the standard mushaf. This is
-// STATIC data — the running app makes no network calls (the original 'no Quran
+// STATIC data - the running app makes no network calls (the original 'no Quran
 // API at runtime' constraint stands); the table was generated from a reference
 // at build time.
 //
@@ -231,7 +231,7 @@ export function juzForPage(m: MushafId, page: number): number {
   return juz;
 }
 
-/** The surah a page belongs to — the latest surah begun by that page. */
+/** The surah a page belongs to - the latest surah begun by that page. */
 export function surahForPage(m: MushafId, page: number): Surah {
   const s = spec(m);
   const p = clampPage(m, page);

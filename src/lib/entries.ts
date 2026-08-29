@@ -22,17 +22,17 @@ export const ENTRY_META: Record<
   sabak: {
     label: "Sabak",
     bucket: "new",
-    desc: "New lesson — the fresh portion you’re memorizing today.",
+    desc: "New lesson: the fresh portion you’re memorizing today.",
   },
   sabak_para: {
     label: "Sabak Para",
     bucket: "revision",
-    desc: "Recent revision — what you learnt in the last week or two.",
+    desc: "Recent revision: what you learnt in the last week or two.",
   },
   dor: {
     label: "Dhor",
     bucket: "revision",
-    desc: "Old review (manzil) — long-term revision of older juz.",
+    desc: "Old review (manzil): long-term revision of older juz.",
   },
   reading: {
     label: "Reading",

@@ -258,7 +258,7 @@ export function OnboardingFlow({
         <>
           <h1 className="mt-2 text-title1">Install Iqra</h1>
           <p className="mt-2 text-callout text-muted">
-            Add Iqra to your Home Screen so it opens like an app — and so push
+            Add Iqra to your Home Screen so it opens like an app, and so push
             notifications work (required on iPhone).
           </p>
           <div className="mt-7">

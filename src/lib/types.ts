@@ -40,7 +40,7 @@ export type Message = {
   created_at: string;
 };
 
-/** One reaction per user per message (IG semantics — new emoji replaces old). */
+/** One reaction per user per message (IG semantics - new emoji replaces old). */
 export type Reaction = {
   id: string;
   message_id: string;
@@ -50,7 +50,7 @@ export type Reaction = {
   created_at: string;
 };
 
-/** Slim row for all-time group page aggregates (khatmah tracker) — every
+/** Slim row for all-time group page aggregates (khatmah tracker) - every
  *  entry type counts, summed via pages_equiv (already page-normalized). */
 export type ReadingRow = {
   user_id: string;

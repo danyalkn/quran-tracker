@@ -2,7 +2,7 @@ import { createBrowserClient } from "@supabase/ssr";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./keys";
 
 /**
- * Browser-side Supabase client (singleton — @supabase/ssr caches it, so every
+ * Browser-side Supabase client (singleton - @supabase/ssr caches it, so every
  * createClient() call shares one auth session and one realtime socket).
  *
  * Realtime hardening for a PWA that gets backgrounded/suspended:

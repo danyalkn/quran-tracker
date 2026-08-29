@@ -40,7 +40,7 @@ export function LoginForm({
       return;
     }
     if (mode === "signup" && addr !== confirmEmail.trim().toLowerCase()) {
-      setError("Emails don’t match — double-check for typos.");
+      setError("Emails don’t match. Double-check for typos.");
       return;
     }
     if (password.length < 6) {
@@ -69,7 +69,7 @@ export function LoginForm({
       if (!data.session) {
         setLoading(false);
         setNotice(
-          "Account created. Email confirmation appears to be ON — disable it in Supabase (Auth → Providers → Email), or confirm via the email, then sign in.",
+          "Account created. Email confirmation appears to be ON. Disable it in Supabase (Auth → Providers → Email), or confirm via the email, then sign in.",
         );
         setMode("signin");
         return;

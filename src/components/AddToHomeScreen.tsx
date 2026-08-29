@@ -63,7 +63,7 @@ export function AddToHomeScreen() {
           <p className="text-callout font-semibold">Installed</p>
         </div>
         <p className="mt-1 text-footnote text-muted">
-          You’re running Iqra as an installed app — push notifications will work.
+          You’re running Iqra as an installed app, so push notifications will work.
         </p>
       </div>
     );

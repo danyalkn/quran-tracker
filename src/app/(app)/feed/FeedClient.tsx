@@ -53,7 +53,7 @@ export function FeedClient({
     [members],
   );
 
-  // Live-update the feed when anyone logs (in-app only — no push for feed).
+  // Live-update the feed when anyone logs (in-app only - no push for feed).
   useEffect(() => {
     const supabase = createClient();
     const channel = supabase

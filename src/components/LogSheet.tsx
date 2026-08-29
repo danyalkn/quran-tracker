@@ -73,9 +73,9 @@ export function LogSheet({
   editing?: LogRow | null;
   /** Most recent last-page read, used to auto-advance the bookmark. */
   lastReadPage?: number | null;
-  /** The reader's mushaf — drives the page→juz/surah map and page range. */
+  /** The reader's mushaf - drives the page→juz/surah map and page range. */
   mushaf?: MushafId;
-  /** Profile timezone — backdating must land on the right local day. */
+  /** Profile timezone - backdating must land on the right local day. */
   tz: string;
 }) {
   // An entry being edited keeps its own mushaf; otherwise use the user's.
@@ -165,7 +165,7 @@ export function LogSheet({
   // The location we'll actually store for this reading.
   const finalLoc = autoAdvance ? autoLoc : readLoc;
 
-  // Numbers only — up to 2 decimal places for pages, integer for the page no.
+  // Numbers only - up to 2 decimal places for pages, integer for the page no.
   const onPagesReadChange = (v: string) => {
     if (/^\d*\.?\d{0,2}$/.test(v)) setPagesRead(v);
   };
@@ -184,7 +184,7 @@ export function LogSheet({
           : `Revising Juz ${juz} · ${portion} ${part}`;
 
   const save = () => {
-    // Backdate to 8pm yesterday *in the profile's timezone* — every consumer
+    // Backdate to 8pm yesterday *in the profile's timezone* - every consumer
     // (streaks, daily bars, feed grouping) buckets by that zone, not the
     // device's, and the two can differ.
     const loggedAt = backdating ? zonedIso(yesterdayLocal(tz), 20, tz) : null;
@@ -281,7 +281,7 @@ export function LogSheet({
             </div>
             <div className="w-full">
               {/* Auto-advance the bookmark: last page = previous + pages read.
-                  Hidden while backdating — see `autoAdvance`. */}
+                  Hidden while backdating - see `autoAdvance`. */}
               <div
                 className={cn(
                   "flex items-center gap-3 rounded-2xl bg-surface p-3.5 shadow-e1",
@@ -422,7 +422,7 @@ export function LogSheet({
                 <div className="flex-1">
                   {portion === "Full" ? (
                     <div className="grid h-[200px] place-items-center text-callout text-faint">
-                      —
+                      –
                     </div>
                   ) : portion === "Pages" ? (
                     <WheelPicker
@@ -446,7 +446,7 @@ export function LogSheet({
           </>
         )}
 
-        {/* When — backdate a forgotten entry to yesterday (new entries only) */}
+        {/* When - backdate a forgotten entry to yesterday (new entries only) */}
         {!editing && (
           <div className="mt-5">
             <div className="flex rounded-xl bg-surface-2 p-1 text-subhead">
@@ -468,14 +468,14 @@ export function LogSheet({
             </div>
             {when === "yesterday" && (
               <p className="mt-1.5 px-1 text-footnote text-faint">
-                Forgot to log? This saves it for yesterday — your streak stays
+                Forgot to log? This saves it for yesterday, so your streak stays
                 honest.
               </p>
             )}
           </div>
         )}
 
-        {/* Notes — collapsed by default */}
+        {/* Notes - collapsed by default */}
         <div className="mt-5">
           {showNotes ? (
             <>

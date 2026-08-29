@@ -71,7 +71,7 @@ type Filter = "all" | "sabak" | "revision";
 // The group khatmah is measured against the standard Uthmani mushaf.
 const KHATMAH_PAGES = totalPages("uthmani15"); // 604
 
-/** Recharts paints via SVG attributes, which don't resolve CSS variables — so
+/** Recharts paints via SVG attributes, which don't resolve CSS variables - so
  *  read the resolved token values and re-read when the color scheme flips. */
 function useChartColors() {
   const [c, setC] = useState({
@@ -194,7 +194,7 @@ export function StatsClient({
       scope === "mine" ? entries.filter((e) => e.user_id === userId) : entries,
     [entries, scope, userId],
   );
-  // Readers have one category. Memorizers filter by All / Sabak / Revision —
+  // Readers have one category. Memorizers filter by All / Sabak / Revision -
   // reading entries only appear under All (never counted as "new memorization").
   const chartEntries = useMemo(() => {
     // The Sabak/Revision filter only exists in personal hifz view; never let a
@@ -253,7 +253,7 @@ export function StatsClient({
   const [activeCell, setActiveCell] = useState<number | null>(null);
 
   // Weekly trend: real calendar weeks (Mon–Sun), last 8 including this one.
-  // The current week is partial by design — it runs Monday → today.
+  // The current week is partial by design - it runs Monday → today.
   const weeklyBar = useMemo(() => {
     const byDay = new Map<string, number>();
     for (const e of chartEntries) {
@@ -282,7 +282,7 @@ export function StatsClient({
   // This calendar week so far: Monday → today.
   const thisWeekDates = useMemo(() => weekDatesUpTo(today, today), [today]);
 
-  // Donut (hifz only): Sabak vs Revision (memorization only — excludes reading).
+  // Donut (hifz only): Sabak vs Revision (memorization only - excludes reading).
   const sabakCount = scoped.filter((e) => e.entry_type === "sabak").length;
   const revCount = scoped.filter(
     (e) => e.entry_type === "sabak_para" || e.entry_type === "dor",
@@ -320,7 +320,7 @@ export function StatsClient({
   const [month, setMonth] = useState(thisMonth);
   const isThisMonth = month === thisMonth;
 
-  /** Local month key of each row, computed once — the timezone conversion is
+  /** Local month key of each row, computed once - the timezone conversion is
    *  the expensive part and every month view needs it. */
   const readingByMonth = useMemo(() => {
     const out = new Map<string, { user_id: string; date: string; pages: number }[]>();
@@ -405,7 +405,7 @@ export function StatsClient({
   const monthName = monthLabel(month, today);
   const prevMonthName = monthLabel(addMonths(month, -1), today);
 
-  // ── Personal khatmah — bookmark position from the latest reading entry ──
+  // ── Personal khatmah - bookmark position from the latest reading entry ──
   const myKhatmah = useMemo(() => {
     if (!reading) return null;
     const mine = entries.filter((e) => e.user_id === userId);
@@ -498,7 +498,7 @@ export function StatsClient({
     };
   }, [entries, userId, mineDays, tz, today]);
 
-  // The Sunday push lands on /stats#recap — bring the card into view.
+  // The Sunday push lands on /stats#recap - bring the card into view.
   useEffect(() => {
     if (window.location.hash === "#recap") {
       // After paint, so layout is settled before we scroll.
@@ -511,7 +511,7 @@ export function StatsClient({
   // ── Insights ──────────────────────────────────────────────────────────────
   const insights = useMemo(() => {
     // Calendar weeks (Mon-based). The current week is partial, so compare it
-    // against the *same span* of last week — "Mon–Wed vs Mon–Wed" — otherwise
+    // against the *same span* of last week - "Mon–Wed vs Mon–Wed" - otherwise
     // every Monday would look like a collapse against a full 7-day week.
     const week = new Set(thisWeekDates);
     const prevWeek = new Set(
@@ -529,7 +529,7 @@ export function StatsClient({
     if (scope === "mine") {
       const minRows = entries.filter((e) => e.user_id === userId);
       // The generic personal lines (trend, streak, consistency, patterns,
-      // ETA) now come from src/lib/insights.ts via the `personal` memo —
+      // ETA) now come from src/lib/insights.ts via the `personal` memo -
       // this branch only contributes the hifz-specific revision reads.
 
       // Most revised juz (structured logging).
@@ -658,7 +658,7 @@ export function StatsClient({
       </header>
 
       <div className="space-y-4 px-5">
-        {/* All / Sabak / Revision toggle — hifz, personal scope only */}
+        {/* All / Sabak / Revision toggle - hifz, personal scope only */}
         {!reading && scope === "mine" && (
           <div className="flex rounded-xl bg-surface-2 p-1 text-subhead">
             {(
@@ -706,7 +706,7 @@ export function StatsClient({
           </div>
         </div>
 
-        {/* ── MINE: week recap — the Sunday push deep-links here (#recap) ── */}
+        {/* ── MINE: week recap - the Sunday push deep-links here (#recap) ── */}
         {scope === "mine" && (
           <div id="recap" className="scroll-mt-4 rounded-2xl bg-surface p-4 shadow-e1">
             <div className="flex items-start justify-between">
@@ -852,7 +852,7 @@ export function StatsClient({
               juz
             </span>
           </div>
-          {/* Name the month in both clauses — the active-day count belongs to
+          {/* Name the month in both clauses - the active-day count belongs to
               the selected month, not the comparison month. */}
           <p className="mt-0.5 text-footnote text-faint">
             {monthActiveDays > 0 &&
@@ -982,7 +982,7 @@ export function StatsClient({
                 <UtensilsCrossed className="size-4 shrink-0" />
                 <p className="text-footnote font-medium">
                   {khatmahs} {khatmahs === 1 ? "khatmah" : "khatmahs"} completed
-                  — {khatmahs === 1 ? "a dawat is" : `${khatmahs} dawats are`}{" "}
+                  · {khatmahs === 1 ? "a dawat is" : `${khatmahs} dawats are`}{" "}
                   owed 🎉
                 </p>
               </div>
@@ -990,7 +990,7 @@ export function StatsClient({
           </div>
         )}
 
-        {/* ── GROUP: leaderboard — this month + all time per member ── */}
+        {/* ── GROUP: leaderboard - this month + all time per member ── */}
         {scope === "group" && (
           <Card title={`Leaderboard · ${monthName}`}>
             <div className="space-y-3">
@@ -1037,7 +1037,7 @@ export function StatsClient({
           </Card>
         )}
 
-        {/* Insights — mine: the personal engine + hifz extras + one piece of
+        {/* Insights - mine: the personal engine + hifz extras + one piece of
             advice; group: the existing aggregate lines. */}
         {scope === "mine" ? (
           <Card title="Trends & insights">
@@ -1206,7 +1206,7 @@ export function StatsClient({
           </>
         )}
 
-        {/* New vs Revision donut — hifz, personal scope */}
+        {/* New vs Revision donut - hifz, personal scope */}
         {!reading && scope === "mine" && (
           <Card title="Sabak vs Revision">
             {pieTotal === 0 ? (
@@ -1253,7 +1253,7 @@ export function StatsClient({
         )}
       </div>
 
-      {/* Where these numbers come from — totals only count what was logged. */}
+      {/* Where these numbers come from - totals only count what was logged. */}
       <Sheet
         open={showCoverage}
         onClose={() => setShowCoverage(false)}
@@ -1265,7 +1265,7 @@ export function StatsClient({
           </h2>
           <div className="mt-4 space-y-3 text-subhead text-muted">
             <p>
-              Every total here is built from what’s been logged in Iqra — nothing
+              Every total here is built from what’s been logged in Iqra, nothing
               else. If you read without logging it, or started reading before
               joining, that isn’t counted.
             </p>
@@ -1296,7 +1296,7 @@ export function StatsClient({
   );
 }
 
-/** ▲ 12% / ▼ 8% / — steady. Icon + number together, never color alone. */
+/** ▲ 12% / ▼ 8% / - steady. Icon + number together, never color alone. */
 function DeltaBadge({ value }: { value: number }) {
   const pct = Math.round(Math.abs(value) * 100);
   if (pct === 0) {

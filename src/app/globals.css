@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 /* ═══════════════════════════════════════════════════════════════════════
-   Iqra design tokens — "Paper & Pine"
+   Iqra design tokens - "Paper & Pine"
    Warm paper neutrals · single deep manuscript-green accent · iOS type ramp
    · hairline borders + soft layered depth. Light + dark (system-driven now,
    with a [data-theme] override hook for a future manual toggle).
@@ -9,12 +9,12 @@
 
 /* ── Light values (the default) ─────────────────────────────────────────── */
 :root {
-  --canvas: #faf8f3; /* app background — warm paper */
+  --canvas: #faf8f3; /* app background - warm paper */
   --surface: #ffffff; /* cards */
   --surface-2: #f3f0e9; /* subtle inset surfaces */
   --border: #e7e2d8; /* hairlines */
 
-  --foreground: #1c1b19; /* primary text — warm near-black */
+  --foreground: #1c1b19; /* primary text - warm near-black */
   --muted: #6b6760; /* secondary text */
   --faint: #9a958c; /* tertiary text / placeholders */
 
@@ -28,7 +28,7 @@
   --danger: #b4453a; /* destructive (delete account) */
   --danger-tint: #f6e3e0;
 
-  /* Subtle, layered elevation — not heavy drop shadows. */
+  /* Subtle, layered elevation - not heavy drop shadows. */
   --shadow-e1: 0 1px 2px rgba(28, 27, 25, 0.04), 0 1px 3px rgba(28, 27, 25, 0.06);
   --shadow-e2: 0 2px 4px rgba(28, 27, 25, 0.04), 0 4px 12px rgba(28, 27, 25, 0.06);
   --shadow-e3: 0 12px 32px rgba(28, 27, 25, 0.1);
@@ -36,7 +36,7 @@
   color-scheme: light;
 }
 
-/* ── Dark values — system preference ────────────────────────────────────── */
+/* ── Dark values - system preference ────────────────────────────────────── */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]):not(.theme-light) {
     --canvas: #0e0f0d; /* warm near-black */
@@ -67,7 +67,7 @@
   }
 }
 
-/* ── Dark values — explicit override (manual toggle) + subtree scoping ──── */
+/* ── Dark values - explicit override (manual toggle) + subtree scoping ──── */
 :root[data-theme="dark"],
 .theme-dark {
   --canvas: #0e0f0d;
@@ -96,7 +96,7 @@
   color-scheme: dark;
 }
 
-/* ── Light values — explicit subtree scoping (for side-by-side previews) ── */
+/* ── Light values - explicit subtree scoping (for side-by-side previews) ── */
 .theme-light {
   --canvas: #faf8f3;
   --surface: #ffffff;
@@ -140,7 +140,7 @@
   --color-danger: var(--danger);
   --color-danger-tint: var(--danger-tint);
 
-  /* Fonts — SF on Apple, self-hosted Inter fallback elsewhere. */
+  /* Fonts - SF on Apple, self-hosted Inter fallback elsewhere. */
   --font-sans:
     -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
     var(--font-inter), "Helvetica Neue", "Segoe UI", sans-serif;
@@ -191,7 +191,7 @@
 /* ── Base ───────────────────────────────────────────────────────────────── */
 /* iOS-style continuous (squircle) corners wherever a radius is set.
    superellipse(2) == circular; iOS "continuous" curvature sits a bit above 2.
-   Progressive enhancement — engines without corner-shape (incl. current
+   Progressive enhancement - engines without corner-shape (incl. current
    Safari) fall back to standard circular corners. */
 @supports (corner-shape: superellipse(2.4)) {
   :where(*) {

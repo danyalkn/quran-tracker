@@ -1,4 +1,4 @@
-// Iqra — send-push Edge Function
+// Iqra - send-push Edge Function
 // Sends Web Push (VAPID) to one or more users. Called by the pg_cron jobs
 // (reminders) and the messages @mention trigger via pg_net, authenticated with
 // the project's service-role key. Dead subscriptions (404/410) are pruned.
@@ -122,7 +122,7 @@ Deno.serve(async (req) => {
       errors.push({
         host: "unrecognised",
         status: null,
-        message: "Endpoint is not a known push service — skipped.",
+        message: "Endpoint is not a known push service - skipped.",
       });
       console.error("send-push refused a non-push endpoint");
       return;
@@ -145,7 +145,7 @@ Deno.serve(async (req) => {
         return;
       }
       // Anything else (FCM 400/403 = malformed request / VAPID key mismatch,
-      // 429 = rate limit, 5xx) used to vanish silently — exactly the class of
+      // 429 = rate limit, 5xx) used to vanish silently - exactly the class of
       // failure that makes one platform "just not get notifications".
       let host = "unknown";
       try {

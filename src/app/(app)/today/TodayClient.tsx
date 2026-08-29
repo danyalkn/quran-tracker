@@ -92,7 +92,7 @@ export function TodayClient({
   // Most recent reading bookmark → where to start next. We store the last page
   // read but show the *next* page to pick up from (wrapping to 1 after a khatm).
   // Resolve juz/surah in the mushaf that entry was logged in. Pick by
-  // logged_at, not array position — a backdated entry may sit at the head
+  // logged_at, not array position - a backdated entry may sit at the head
   // optimistically but must never become the bookmark.
   const lastReading = useMemo(() => {
     let best: LogRow | null = null;
@@ -133,7 +133,7 @@ export function TodayClient({
 
   const handleUpdate = async (id: string, payload: NewEntry) => {
     const prev = entries;
-    // Edits never change logged_at — drop it so the spread keeps the original.
+    // Edits never change logged_at - drop it so the spread keeps the original.
     const { logged_at: _omit, ...fields } = payload;
     void _omit;
     setEntries((p) =>
@@ -194,7 +194,7 @@ export function TodayClient({
     if (isReadingType(payload.entry_type) && celebrateOn.current) {
       setCelebrateTick((t) => t + 1);
     }
-    // A backdated entry won't show in today's list — say so.
+    // A backdated entry won't show in today's list - say so.
     const backdated =
       payload.logged_at != null &&
       localDate(payload.logged_at, tz) !== today;
@@ -303,7 +303,7 @@ export function TodayClient({
         </div>
       </div>
 
-      {/* Resume-from bookmark — shows the next page to start on. */}
+      {/* Resume-from bookmark - shows the next page to start on. */}
       {startPage != null && (
         <div className="px-5 pt-3">
           <div className="flex items-center gap-2 rounded-xl bg-accent-tint px-3.5 py-2.5 text-accent">
@@ -316,7 +316,7 @@ export function TodayClient({
         </div>
       )}
 
-      {/* Filter (hifz only — readers have a single category) */}
+      {/* Filter (hifz only - readers have a single category) */}
       {mode !== "reading" && todayEntries.length > 0 && (
         <div className="px-5 pt-5">
           <div className="flex rounded-xl bg-surface-2 p-1 text-subhead">
@@ -344,7 +344,7 @@ export function TodayClient({
         </p>
       )}
 
-      {/* Backdated entries don't appear in today's list — confirm the save. */}
+      {/* Backdated entries don't appear in today's list - confirm the save. */}
       {notice && (
         <p className="mx-5 mt-3 rounded-lg bg-accent-tint px-3 py-2 text-footnote text-accent">
           {notice}

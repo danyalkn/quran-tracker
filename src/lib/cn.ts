@@ -1,4 +1,4 @@
-/** Tiny classnames joiner — filters falsy values. */
+/** Tiny classnames joiner - filters falsy values. */
 export function cn(
   ...parts: Array<string | false | null | undefined>
 ): string {

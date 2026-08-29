@@ -30,7 +30,7 @@ export async function POST() {
   if (previous && now - previous < COOLDOWN_MS) {
     const wait = Math.ceil((COOLDOWN_MS - (now - previous)) / 1000);
     return NextResponse.json(
-      { error: `Just sent one — try again in ${wait}s.` },
+      { error: `Just sent one. Try again in ${wait}s.` },
       { status: 429 },
     );
   }

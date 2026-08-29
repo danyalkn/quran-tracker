@@ -1,4 +1,4 @@
-/* Iqra service worker — Web Push + notification handling.
+/* Iqra service worker - Web Push + notification handling.
  *
  * Deliberately minimal on caching: we do NOT cache API/data responses, to
  * avoid ever serving stale or cross-user data. (An optional offline app-shell
@@ -27,7 +27,7 @@ function urlBase64ToUint8Array(base64) {
 /* Chrome on Android rotates/expires FCM subscriptions (browser updates,
  * token rotation, storage pressure) far more often than Apple's push
  * service does. Without this handler the device silently stops receiving
- * pushes until the user re-toggles notifications — the exact "worked for a
+ * pushes until the user re-toggles notifications - the exact "worked for a
  * while, then stopped" failure. Resubscribe and swap the row server-side. */
 self.addEventListener("pushsubscriptionchange", (event) => {
   const oldEndpoint = event.oldSubscription ? event.oldSubscription.endpoint : null;
@@ -74,7 +74,7 @@ self.addEventListener("push", (event) => {
     icon: "/icons/icon-192.png",
     badge: "/icons/badge-72.png",
     tag: payload.tag, // collapse same-kind notifications (e.g. reminders)
-    // Without renotify, Android replaces a same-tag notification SILENTLY —
+    // Without renotify, Android replaces a same-tag notification SILENTLY -
     // yesterday's reminder still in the tray mutes today's entirely.
     renotify: Boolean(payload.tag),
     data: { url: payload.url || "/" },

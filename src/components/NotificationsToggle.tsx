@@ -29,7 +29,7 @@ export function NotificationsToggle({ userId }: { userId: string }) {
       const errors: { host: string; status: number | null }[] = data.errors ?? [];
       if (sent === 0 && errors.length === 0) {
         setTestResult(
-          "No registered devices found — turn notifications off and on again to re-register this one.",
+          "No registered devices found. Turn notifications off and on again to re-register this one.",
         );
       } else if (errors.length > 0) {
         setTestResult(

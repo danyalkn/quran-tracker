@@ -10,7 +10,7 @@ import type {
   ReadingRow,
 } from "@/lib/types";
 
-/** All reactions on the group's recent messages (small group — fetch all). */
+/** All reactions on the group's recent messages (small group - fetch all). */
 export async function getGroupReactions(
   groupId: string,
   limit = 1000,
@@ -25,7 +25,7 @@ export async function getGroupReactions(
   return (data as Reaction[] | null) ?? [];
 }
 
-/** All-time page-bearing entries for the group khatmah — EVERY type counts
+/** All-time page-bearing entries for the group khatmah - EVERY type counts
  *  (sabak, sabak para, dhor, reading, revising), summed as Uthmani pages. */
 export async function getGroupPagesAllTime(
   groupId: string,
@@ -37,7 +37,7 @@ export async function getGroupPagesAllTime(
     .eq("group_id", groupId)
     // Newest first: the cap is a safety valve, and if it ever bites it must
     // shave the oldest rows (a slight all-time undercount) rather than the
-    // newest — the month-scoped stats and leaderboard read from these rows and
+    // newest - the month-scoped stats and leaderboard read from these rows and
     // would otherwise silently read zero.
     .order("logged_at", { ascending: false })
     .limit(10000);
