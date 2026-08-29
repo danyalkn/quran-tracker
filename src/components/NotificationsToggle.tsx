@@ -73,8 +73,8 @@ export function NotificationsToggle({ userId }: { userId: string }) {
       "On iPhone, add Iqra to your Home Screen first (Safari → Share → Add to Home Screen), then turn this on.",
     denied:
       "Notifications are blocked. Enable them for Iqra in your browser/site settings, then try again.",
-    off: "Get your reminders, @mention alerts, and a sunset check-in on days you haven’t logged.",
-    on: "You’ll get reminders, @mention alerts, and a sunset check-in if a day slips by unlogged.",
+    off: "Reminders, @mentions, a sunset check-in on unlogged days, and your Sunday recap.",
+    on: "You’ll get reminders, @mentions, sunset check-ins, and your Sunday week-in-review.",
   };
 
   return (

@@ -23,6 +23,10 @@ import {
   Hourglass,
   Flag,
   CalendarCheck,
+  CalendarDays,
+  Clock3,
+  Flame,
+  Lightbulb,
   UtensilsCrossed,
   ChevronLeft,
   ChevronRight,
@@ -30,7 +34,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { type Mode } from "@/lib/entries";
-import { totalPages, pageFromRef } from "@/lib/mushaf";
+import { totalPages, pageFromRef, surahForPage } from "@/lib/mushaf";
 import type { GroupMember, LogRow, ReadingRow } from "@/lib/types";
 import {
   localDate,
@@ -43,6 +47,7 @@ import {
   weekDates,
   weekDatesUpTo,
   addWeeks,
+  startOfWeek,
   weekRangeLabel,
   monthKey,
   addMonths,
@@ -50,6 +55,12 @@ import {
   monthLabel,
 } from "@/lib/dates";
 import { cn } from "@/lib/cn";
+import {
+  computeSignals,
+  buildPersonalInsights,
+  buildAdvice,
+  type InsightKind,
+} from "@/lib/insights";
 import { Avatar } from "@/components/ui/Avatar";
 import { Sheet } from "@/components/ui/Sheet";
 import { Button } from "@/components/ui/Button";
@@ -121,6 +132,33 @@ function TooltipCard({
 
 // Monday-first, matching the Mon–Sun heatmap rows.
 const WEEKDAYS = ["M", "T", "W", "T", "F", "S", "S"];
+
+// Icon per personal-insight kind (trend swaps up/down at the call site).
+const INSIGHT_ICONS: Record<InsightKind, LucideIcon> = {
+  trend: TrendingUp,
+  streak: Flame,
+  consistency: CalendarCheck,
+  nextJuz: BookMarked,
+  weekday: CalendarDays,
+  timeOfDay: Clock3,
+  bestWeek: Trophy,
+  month: CalendarDays,
+  eta: Flag,
+};
+
+/** Render the engine's `**bold**` markers as real emphasis. */
+function emphasize(text: string): React.ReactNode {
+  const parts = text.split("**");
+  return parts.map((part, i) =>
+    i % 2 === 1 ? (
+      <b key={i} className="font-semibold">
+        {part}
+      </b>
+    ) : (
+      part
+    ),
+  );
+}
 
 const pagesOf = (rows: { pages_equiv: number | null }[]) =>
   +rows.reduce((s, e) => s + (e.pages_equiv ? +e.pages_equiv : 0), 0).toFixed(1);
@@ -396,6 +434,80 @@ export function StatsClient({
     };
   }, [reading, entries, userId, tz, today]);
 
+  // ── Personal insights + advice (mine scope) ───────────────────────────────
+  // Signals + phrasing live in src/lib/insights.ts (pure, node-testable).
+  // Seed = user + week Monday: stable within a week, rotates the next.
+  const personal = useMemo(() => {
+    const mine = entries.filter((e) => e.user_id === userId);
+    const mineAllTime = readingAll.filter((r) => r.user_id === userId);
+    const signals = computeSignals({
+      mine,
+      mineAllTime,
+      mineDays,
+      streak,
+      longestStreak: longest,
+      tz,
+      today,
+    });
+    const seedBase = `${userId.slice(0, 8)}:${startOfWeek(today)}`;
+    return {
+      signals,
+      insights: buildPersonalInsights(signals, { seedBase, includeEta: !reading }),
+      advice: buildAdvice(signals, seedBase),
+    };
+  }, [entries, readingAll, userId, mineDays, streak, longest, tz, today, reading]);
+
+  // ── Week recap (mine scope; the Sunday push deep-links here) ──────────────
+  const recap = useMemo(() => {
+    const monday = startOfWeek(today);
+    const days = weekDates(monday).map((d) => ({
+      d,
+      logged: mineDays.has(d),
+      future: d > today,
+      isToday: d === today,
+    }));
+    const mine = entries.filter((e) => e.user_id === userId);
+    const weekSet = new Set(weekDatesUpTo(monday, today));
+    const refs = mine
+      .filter(
+        (e) =>
+          (e.entry_type === "reading" || e.entry_type === "revising") &&
+          e.to_ref &&
+          weekSet.has(localDate(e.logged_at, tz)),
+      )
+      .sort((a, b) => (a.logged_at < b.logged_at ? -1 : 1));
+    const firstPage = refs.length ? pageFromRef(refs[0].to_ref) : null;
+    const lastRef = refs.length ? refs[refs.length - 1] : null;
+    const lastPage = lastRef ? pageFromRef(lastRef.to_ref) : null;
+    return {
+      monday,
+      label: weekRangeLabel(monday, days[6].d),
+      days,
+      activeDays: days.filter((x) => x.logged).length,
+      movement:
+        firstPage != null && lastPage != null && lastRef
+          ? {
+              from: firstPage,
+              to: lastPage,
+              surah: surahForPage(
+                (lastRef.mushaf ?? "uthmani15") as Parameters<typeof surahForPage>[0],
+                lastPage,
+              ).name,
+            }
+          : null,
+    };
+  }, [entries, userId, mineDays, tz, today]);
+
+  // The Sunday push lands on /stats#recap — bring the card into view.
+  useEffect(() => {
+    if (window.location.hash === "#recap") {
+      // After paint, so layout is settled before we scroll.
+      requestAnimationFrame(() => {
+        document.getElementById("recap")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    }
+  }, []);
+
   // ── Insights ──────────────────────────────────────────────────────────────
   const insights = useMemo(() => {
     // Calendar weeks (Mon-based). The current week is partial, so compare it
@@ -416,28 +528,9 @@ export function StatsClient({
 
     if (scope === "mine") {
       const minRows = entries.filter((e) => e.user_id === userId);
-      const thisW = pagesIn(minRows, week);
-      const lastW = pagesIn(minRows, prevWeek);
-      out.push({
-        icon: thisW >= lastW ? TrendingUp : TrendingDown,
-        text: (
-          <>
-            <b>{thisW}</b> pages this week{" "}
-            <span className="text-faint">· {lastW} same days last week</span>
-          </>
-        ),
-        delta: lastW > 0 ? (thisW - lastW) / lastW : thisW > 0 ? 1 : null,
-      });
-
-      const active14 = lastNDaysEndingOn(today, 14).filter((d) => mineDays.has(d)).length;
-      out.push({
-        icon: CalendarCheck,
-        text: (
-          <>
-            Logged on <b>{active14}</b> of the last 14 days
-          </>
-        ),
-      });
+      // The generic personal lines (trend, streak, consistency, patterns,
+      // ETA) now come from src/lib/insights.ts via the `personal` memo —
+      // this branch only contributes the hifz-specific revision reads.
 
       // Most revised juz (structured logging).
       const revRows = minRows.filter(
@@ -491,38 +584,6 @@ export function StatsClient({
         }
       }
 
-      // Reading pace → khatmah ETA from the latest bookmark.
-      const lastRead = minRows.find(
-        (e) =>
-          (e.entry_type === "reading" || e.entry_type === "revising") &&
-          e.to_ref,
-      );
-      const page = pageFromRef(lastRead?.to_ref);
-      // Reading mode gets the richer "Your khatmah" card instead.
-      if (!reading && lastRead && page) {
-        const total = totalPages(lastRead.mushaf ?? "uthmani15");
-        const last14 = new Set(lastNDaysEndingOn(today, 14));
-        const pace =
-          pagesIn(
-            minRows.filter(
-              (e) =>
-                e.entry_type === "reading" || e.entry_type === "revising",
-            ),
-            last14,
-          ) / 14;
-        const left = total - page;
-        if (pace > 0 && left > 0) {
-          out.push({
-            icon: Flag,
-            text: (
-              <>
-                On page <b>{page}</b> — about <b>{Math.ceil(left / pace)}</b>{" "}
-                days to finish at your pace
-              </>
-            ),
-          });
-        }
-      }
     } else {
       const activeMembers = new Set(
         entries
@@ -586,10 +647,8 @@ export function StatsClient({
     tz,
     today,
     thisWeekDates,
-    mineDays,
     members,
     memberCount,
-    reading,
   ]);
 
   return (
@@ -646,6 +705,65 @@ export function StatsClient({
             ))}
           </div>
         </div>
+
+        {/* ── MINE: week recap — the Sunday push deep-links here (#recap) ── */}
+        {scope === "mine" && (
+          <div id="recap" className="scroll-mt-4 rounded-2xl bg-surface p-4 shadow-e1">
+            <div className="flex items-start justify-between">
+              <p className="text-callout font-semibold">Your week</p>
+              <span className="text-caption text-faint">{recap.label}</span>
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+              <span className="text-display tabular-nums">
+                {personal.signals.pagesThisWeek}
+              </span>
+              <span className="text-callout text-muted">
+                {personal.signals.pagesThisWeek === 1 ? "page" : "pages"} ·{" "}
+                {recap.activeDays} of 7 days
+              </span>
+            </div>
+            <p className="mt-0.5 text-footnote text-faint">
+              {personal.signals.pagesSameSpanLastWeek} by this point last week
+              {personal.signals.bestWeek &&
+              personal.signals.pagesThisWeek > personal.signals.bestWeek.pages
+                ? " · your best week yet 🎉"
+                : ""}
+            </p>
+
+            {/* The seven days, Monday → Sunday */}
+            <div className="mt-3 flex justify-between">
+              {recap.days.map((day, i) => (
+                <div key={day.d} className="flex flex-col items-center gap-1">
+                  <span className="text-caption text-faint">{WEEKDAYS[i]}</span>
+                  <span
+                    className={cn(
+                      "grid size-7 place-items-center rounded-full text-caption font-semibold",
+                      day.logged
+                        ? "bg-accent text-white"
+                        : day.future
+                          ? "bg-surface-2 text-faint opacity-40"
+                          : "bg-surface-2 text-faint",
+                      day.isToday && !day.logged && "ring-1 ring-accent",
+                    )}
+                  >
+                    {day.logged ? "✓" : +day.d.slice(8, 10)}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {recap.movement && (
+              <p className="mt-3 text-footnote text-muted">
+                Bookmark this week: p.{recap.movement.from}
+                {recap.movement.to !== recap.movement.from
+                  ? ` → p.${recap.movement.to}`
+                  : ""}{" "}
+                · {recap.movement.surah}
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Stat cards */}
         <div className="grid grid-cols-2 gap-3">
@@ -919,12 +1037,33 @@ export function StatsClient({
           </Card>
         )}
 
-        {/* Insights */}
-        {insights.length > 0 && (
+        {/* Insights — mine: the personal engine + hifz extras + one piece of
+            advice; group: the existing aggregate lines. */}
+        {scope === "mine" ? (
           <Card title="Trends & insights">
             <div className="space-y-3">
+              {personal.insights.map((ins) => {
+                const Icon = INSIGHT_ICONS[ins.kind] ?? CalendarCheck;
+                const TrendIcon =
+                  ins.kind === "trend"
+                    ? (ins.delta ?? 0) >= 0
+                      ? TrendingUp
+                      : TrendingDown
+                    : Icon;
+                return (
+                  <div key={ins.kind} className="flex items-center gap-3">
+                    <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-surface-2 text-muted">
+                      <TrendIcon className="size-4.5" />
+                    </span>
+                    <p className="min-w-0 flex-1 text-subhead text-foreground">
+                      {emphasize(ins.text)}
+                    </p>
+                    {ins.delta != null && <DeltaBadge value={ins.delta} />}
+                  </div>
+                );
+              })}
               {insights.map((ins, i) => (
-                <div key={i} className="flex items-center gap-3">
+                <div key={`hifz-${i}`} className="flex items-center gap-3">
                   <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-surface-2 text-muted">
                     <ins.icon className="size-4.5" />
                   </span>
@@ -935,7 +1074,32 @@ export function StatsClient({
                 </div>
               ))}
             </div>
+            {/* One practical suggestion, reacting to your actual patterns. */}
+            <div className="mt-4 flex items-start gap-3 rounded-xl bg-accent-tint px-3 py-2.5">
+              <Lightbulb className="mt-0.5 size-4 shrink-0 text-accent" />
+              <p className="min-w-0 flex-1 text-footnote font-medium text-accent">
+                {personal.advice}
+              </p>
+            </div>
           </Card>
+        ) : (
+          insights.length > 0 && (
+            <Card title="Trends & insights">
+              <div className="space-y-3">
+                {insights.map((ins, i) => (
+                  <div key={i} className="flex items-center gap-3">
+                    <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-surface-2 text-muted">
+                      <ins.icon className="size-4.5" />
+                    </span>
+                    <p className="min-w-0 flex-1 text-subhead text-foreground [&_b]:font-semibold">
+                      {ins.text}
+                    </p>
+                    {ins.delta != null && <DeltaBadge value={ins.delta} />}
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )
         )}
 
         {/* Entries heatmap */}

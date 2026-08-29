@@ -215,6 +215,11 @@ export function pageFromRef(ref: string | null | undefined): number | null {
 }
 
 /** Juz (1–30) that a page falls in, for the given mushaf. */
+/** Start page of each juz in this mushaf (index 0 → Juz 1). */
+export function juzStartPages(m: MushafId): number[] {
+  return spec(m).juzStart;
+}
+
 export function juzForPage(m: MushafId, page: number): number {
   const s = spec(m);
   const p = clampPage(m, page);
