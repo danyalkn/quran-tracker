@@ -1597,8 +1597,8 @@ export function ChatClient({
                           key={m.user_id}
                           name={m.display_name}
                           src={m.avatar_url}
-                          size={14}
-                          className="-ml-1 shrink-0 ring-2 ring-canvas first:ml-0"
+                          size={18}
+                          className="-ml-1.5 shrink-0 ring-2 ring-canvas first:ml-0"
                         />
                       ))}
                     </div>
