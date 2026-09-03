@@ -33,6 +33,14 @@ function escapeRe(s: string) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/** Parse a Postgres timestamp defensively. Realtime payloads can serialize
+ *  timestamptz WITHOUT an offset ("2026-09-03T05:40:47.287442") - Date.parse
+ *  would read that as device-local time and shift it by hours, silently
+ *  corrupting every frontier comparison. Bare timestamps here are always UTC. */
+function parseTs(s: string): number {
+  return Date.parse(/[zZ]|[+-]\d{2}:?\d{2}$/.test(s) ? s : s + "Z");
+}
+
 function firstName(name: string | undefined | null): string {
   return (name ?? "Member").split(/\s+/)[0];
 }
@@ -364,26 +372,27 @@ export function ChatClient({
     return map;
   }, [reactions]);
 
-  // IG-style read receipts: for each OTHER member, their avatar sits under the
-  // last non-pending message at or before their frontier. A member never gets
-  // an avatar under their own message (sending it implies having seen it).
+  // IG-style read receipts: every OTHER member's avatar sits under the last
+  // non-pending message at or before their frontier, and simply STAYS there
+  // as new messages arrive - no exceptions, including under their own
+  // messages. (The first ship skipped a member whose frontier landed on
+  // their own message; in a two-person conversation that is the usual state,
+  // so receipts kept vanishing. Owner direction: the marker never hides.)
   // Accepted limit: a frontier older than the loaded 100-message window shows
   // no avatar at all - truthful omission beats pinning the receipt to a
-  // message they never actually reached (IG behaves the same way).
+  // message they never actually reached.
   const receiptsByMsg = useMemo(() => {
     const map = new Map<string, GroupMember[]>();
     for (const m of members) {
       if (m.user_id === userId) continue;
       const iso = reads[m.user_id];
       if (!iso) continue;
-      const frontier = Date.parse(iso);
+      const frontier = parseTs(iso);
       for (let i = messages.length - 1; i >= 0; i--) {
         const msg = messages[i];
         if (msg.id.startsWith("temp-")) continue;
-        if (Date.parse(msg.created_at) <= frontier) {
-          if (msg.user_id !== m.user_id) {
-            (map.get(msg.id) ?? map.set(msg.id, []).get(msg.id)!).push(m);
-          }
+        if (parseTs(msg.created_at) <= frontier) {
+          (map.get(msg.id) ?? map.set(msg.id, []).get(msg.id)!).push(m);
           break;
         }
       }
@@ -513,7 +522,7 @@ export function ChatClient({
     }
     if (!newest) return;
     const prev = lastMarked.current;
-    if (prev && Date.parse(newest.created_at) <= Date.parse(prev)) return;
+    if (prev && parseTs(newest.created_at) <= parseTs(prev)) return;
     lastMarked.current = newest.created_at;
     const supabase = createClient();
     const { error } = await supabase.from("chat_reads").upsert(
@@ -544,7 +553,7 @@ export function ChatClient({
       if (
         r.user_id === userId &&
         (!lastMarked.current ||
-          Date.parse(r.last_read_at) > Date.parse(lastMarked.current))
+          parseTs(r.last_read_at) > parseTs(lastMarked.current))
       ) {
         lastMarked.current = r.last_read_at;
       }
@@ -554,7 +563,7 @@ export function ChatClient({
       for (const r of data as ChatRead[]) {
         const cur = next[r.user_id];
         // Frontiers only move forward - a stale fetch must not rewind one.
-        if (!cur || Date.parse(r.last_read_at) > Date.parse(cur)) {
+        if (!cur || parseTs(r.last_read_at) > parseTs(cur)) {
           next[r.user_id] = r.last_read_at;
         }
       }
@@ -704,7 +713,7 @@ export function ChatClient({
           if (!row.user_id || !row.last_read_at || row.user_id === userId) return;
           setReads((prev) => {
             const cur = prev[row.user_id!];
-            if (cur && Date.parse(row.last_read_at!) <= Date.parse(cur)) return prev;
+            if (cur && parseTs(row.last_read_at!) <= parseTs(cur)) return prev;
             return { ...prev, [row.user_id!]: row.last_read_at! };
           });
         },
@@ -779,17 +788,20 @@ export function ChatClient({
       ensureLive.current(away > 15_000);
       syncMessages();
       syncReactions();
+      syncReads();
     };
     const onFocus = () => {
       if (document.visibilityState !== "visible") return;
       ensureLive.current(false);
       syncMessages();
       syncReactions();
+      syncReads();
     };
     const onOnline = () => {
       ensureLive.current(false);
       syncMessages();
       syncReactions();
+      syncReads();
     };
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("focus", onFocus);
@@ -799,7 +811,7 @@ export function ChatClient({
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("online", onOnline);
     };
-  }, [syncMessages, syncReactions]);
+  }, [syncMessages, syncReactions, syncReads]);
 
   // Safety-net poll while the chat is open and visible.
   useEffect(() => {
@@ -807,10 +819,11 @@ export function ChatClient({
       if (document.visibilityState === "visible") {
         syncMessages();
         syncReactions();
+        syncReads();
       }
     }, 20_000);
     return () => clearInterval(id);
-  }, [syncMessages, syncReactions]);
+  }, [syncMessages, syncReactions, syncReads]);
 
   // Note how close to the bottom we are, so incoming messages don't yank the
   // view when the user has scrolled up to read history.
