@@ -12,7 +12,7 @@ import {
   X,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import type { GroupMember, Message, Reaction } from "@/lib/types";
+import type { ChatRead, GroupMember, Message, Reaction } from "@/lib/types";
 import { chatStamp, timeLabel } from "@/lib/dates";
 import { cn } from "@/lib/cn";
 import { Avatar } from "@/components/ui/Avatar";
@@ -212,6 +212,7 @@ export function ChatClient({
   members: initialMembers,
   initialMessages,
   initialReactions,
+  initialReads,
   initialNotifyChat,
   isOwner,
 }: {
@@ -222,12 +223,17 @@ export function ChatClient({
   members: GroupMember[];
   initialMessages: Message[];
   initialReactions: Reaction[];
+  initialReads: ChatRead[];
   initialNotifyChat: boolean;
   isOwner: boolean;
 }) {
   const [members, setMembers] = useState<GroupMember[]>(initialMembers);
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [reactions, setReactions] = useState<Reaction[]>(initialReactions);
+  // Read frontiers: user_id → newest message time they have seen (IG model).
+  const [reads, setReads] = useState<Record<string, string>>(() =>
+    Object.fromEntries(initialReads.map((r) => [r.user_id, r.last_read_at])),
+  );
   const [draft, setDraft] = useState("");
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [mentionQuery, setMentionQuery] = useState<{
@@ -358,6 +364,33 @@ export function ChatClient({
     return map;
   }, [reactions]);
 
+  // IG-style read receipts: for each OTHER member, their avatar sits under the
+  // last non-pending message at or before their frontier. A member never gets
+  // an avatar under their own message (sending it implies having seen it).
+  // Accepted limit: a frontier older than the loaded 100-message window shows
+  // no avatar at all - truthful omission beats pinning the receipt to a
+  // message they never actually reached (IG behaves the same way).
+  const receiptsByMsg = useMemo(() => {
+    const map = new Map<string, GroupMember[]>();
+    for (const m of members) {
+      if (m.user_id === userId) continue;
+      const iso = reads[m.user_id];
+      if (!iso) continue;
+      const frontier = Date.parse(iso);
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i];
+        if (msg.id.startsWith("temp-")) continue;
+        if (Date.parse(msg.created_at) <= frontier) {
+          if (msg.user_id !== m.user_id) {
+            (map.get(msg.id) ?? map.set(msg.id, []).get(msg.id)!).push(m);
+          }
+          break;
+        }
+      }
+    }
+    return map;
+  }, [members, reads, messages, userId]);
+
   const scrollToBottom = useCallback((smooth = false) => {
     const el = scrollerRef.current;
     if (!el) return;
@@ -461,6 +494,90 @@ export function ChatClient({
       return next;
     });
   }, [groupId]);
+
+  // ── Read receipts ─────────────────────────────────────────────────────────
+  // Our own frontier: advance it to the newest server message whenever the
+  // chat is actually on screen. Fire-and-forget with a retry latch - a failed
+  // upsert resets the latch so the next trigger tries again.
+  const lastMarked = useRef<string | null>(
+    initialReads.find((r) => r.user_id === userId)?.last_read_at ?? null,
+  );
+  const markRead = useCallback(async () => {
+    if (document.visibilityState !== "visible") return;
+    let newest: Message | null = null;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (!messages[i].id.startsWith("temp-")) {
+        newest = messages[i];
+        break;
+      }
+    }
+    if (!newest) return;
+    const prev = lastMarked.current;
+    if (prev && Date.parse(newest.created_at) <= Date.parse(prev)) return;
+    lastMarked.current = newest.created_at;
+    const supabase = createClient();
+    const { error } = await supabase.from("chat_reads").upsert(
+      {
+        group_id: groupId,
+        user_id: userId,
+        last_read_at: newest.created_at,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "group_id,user_id" },
+    );
+    if (error) lastMarked.current = prev; // retry on the next trigger
+  }, [messages, groupId, userId]);
+
+  // Frontiers heal like messages/reactions do: refetch and merge. Never treat
+  // a failed fetch as "nobody has read anything".
+  const syncReads = useCallback(async () => {
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from("chat_reads")
+      .select("user_id, last_read_at")
+      .eq("group_id", groupId);
+    if (error || data == null) return;
+    for (const r of data as ChatRead[]) {
+      // Another of MY devices may be further along - adopt its frontier so
+      // this tab doesn't try to write an older one (the server trigger keeps
+      // frontiers monotonic regardless; this just avoids the futile write).
+      if (
+        r.user_id === userId &&
+        (!lastMarked.current ||
+          Date.parse(r.last_read_at) > Date.parse(lastMarked.current))
+      ) {
+        lastMarked.current = r.last_read_at;
+      }
+    }
+    setReads((prev) => {
+      const next = { ...prev };
+      for (const r of data as ChatRead[]) {
+        const cur = next[r.user_id];
+        // Frontiers only move forward - a stale fetch must not rewind one.
+        if (!cur || Date.parse(r.last_read_at) > Date.parse(cur)) {
+          next[r.user_id] = r.last_read_at;
+        }
+      }
+      return next;
+    });
+  }, [groupId, userId]);
+
+  // Mark read when messages change while the chat is on screen, and when the
+  // app comes back to the foreground with the chat open.
+  useEffect(() => {
+    markRead();
+  }, [markRead]);
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") markRead();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [markRead]);
 
   // Realtime transport. Hardened against every silent-death mode we've hit:
   // - Fresh topic per join: supabase.channel() returns an existing same-topic
@@ -574,6 +691,24 @@ export function ChatClient({
           ]);
         },
       )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "chat_reads",
+          filter: `group_id=eq.${groupId}`,
+        },
+        (payload) => {
+          const row = payload.new as Partial<ChatRead>;
+          if (!row.user_id || !row.last_read_at || row.user_id === userId) return;
+          setReads((prev) => {
+            const cur = prev[row.user_id!];
+            if (cur && Date.parse(row.last_read_at!) <= Date.parse(cur)) return prev;
+            return { ...prev, [row.user_id!]: row.last_read_at! };
+          });
+        },
+      )
       .subscribe((status) => {
         if (disposed || ch !== channel) return; // stale channel's echo
         if (status === "SUBSCRIBED") {
@@ -582,6 +717,7 @@ export function ChatClient({
           // No replay on postgres_changes - refill whatever we missed.
           syncMessages();
           syncReactions();
+          syncReads();
         } else if (
           status === "CHANNEL_ERROR" ||
           status === "TIMED_OUT" ||
@@ -626,7 +762,7 @@ export function ChatClient({
       ensureLive.current = () => {};
       teardown();
     };
-  }, [groupId, userId, syncMessages, syncReactions]);
+  }, [groupId, userId, syncMessages, syncReactions, syncReads]);
 
   // Wake/network handlers. Visibility loss on a phone usually means the PWA
   // gets suspended - track how long we were hidden and do a hard transport
@@ -1280,11 +1416,20 @@ export function ChatClient({
                   new Date(msg.created_at).getTime()
                 : Infinity;
               const showStamp = gapPrev >= GAP_MS;
-              // Group consecutive same-sender messages (within the hour).
+              const receipts = receiptsByMsg.get(msg.id) ?? [];
+              // Group consecutive same-sender messages (within the hour). A
+              // receipts row ends a group: its avatars sit between bubbles,
+              // so the corners must close rather than claim connection.
               const sameAsPrev =
-                !!prev && prev.user_id === msg.user_id && !showStamp;
+                !!prev &&
+                prev.user_id === msg.user_id &&
+                !showStamp &&
+                (receiptsByMsg.get(prev.id)?.length ?? 0) === 0;
               const sameAsNext =
-                !!next && next.user_id === msg.user_id && gapNext < GAP_MS;
+                !!next &&
+                next.user_id === msg.user_id &&
+                gapNext < GAP_MS &&
+                receipts.length === 0;
               const firstOfGroup = !sameAsPrev;
               const lastOfGroup = !sameAsNext;
               const pending = msg.id.startsWith("temp-");
@@ -1418,6 +1563,33 @@ export function ChatClient({
                       {pending ? "…" : timeLabel(msg.created_at, tz)}
                     </span>
                   </div>
+
+                  {/* IG-style read receipts: tiny avatars of everyone whose
+                      read frontier stops at this message, right-aligned. */}
+                  {receipts.length > 0 && (
+                    <div
+                      className={cn(
+                        "flex justify-end pr-1",
+                        msgReactions.length > 0 ? "mt-4" : "mt-1",
+                      )}
+                      style={{
+                        transform: dragX ? `translateX(${dragX}px)` : undefined,
+                        transition: dragX
+                          ? "none"
+                          : "transform 220ms var(--ease-spring)",
+                      }}
+                    >
+                      {receipts.map((m) => (
+                        <Avatar
+                          key={m.user_id}
+                          name={m.display_name}
+                          src={m.avatar_url}
+                          size={14}
+                          className="-ml-1 shrink-0 ring-2 ring-canvas first:ml-0"
+                        />
+                      ))}
+                    </div>
+                  )}
                 </div>
               );
             })}

@@ -40,6 +40,12 @@ export type Message = {
   created_at: string;
 };
 
+/** A member's chat read frontier: the newest message time they have seen. */
+export type ChatRead = {
+  user_id: string;
+  last_read_at: string;
+};
+
 /** One reaction per user per message (IG semantics - new emoji replaces old). */
 export type Reaction = {
   id: string;

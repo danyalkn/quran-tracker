@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type {
+  ChatRead,
   LogRow,
   Membership,
   Reminder,
@@ -23,6 +24,16 @@ export async function getGroupReactions(
     .order("created_at", { ascending: true })
     .limit(limit);
   return (data as Reaction[] | null) ?? [];
+}
+
+/** Every member's chat read frontier for the circle (read receipts). */
+export async function getGroupChatReads(groupId: string): Promise<ChatRead[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("chat_reads")
+    .select("user_id, last_read_at")
+    .eq("group_id", groupId);
+  return (data as ChatRead[] | null) ?? [];
 }
 
 /** All-time page-bearing entries for the group khatmah - EVERY type counts

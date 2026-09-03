@@ -6,6 +6,7 @@ import {
   getGroupMembers,
   getGroupMessages,
   getGroupReactions,
+  getGroupChatReads,
 } from "@/lib/data";
 import { Placeholder } from "@/components/Placeholder";
 import { ChatClient } from "./ChatClient";
@@ -26,10 +27,11 @@ export default async function ChatPage() {
     );
   }
 
-  const [members, messages, reactions] = await Promise.all([
+  const [members, messages, reactions, reads] = await Promise.all([
     getGroupMembers(membership.group_id),
     getGroupMessages(membership.group_id),
     getGroupReactions(membership.group_id),
+    getGroupChatReads(membership.group_id),
   ]);
 
   return (
@@ -41,6 +43,7 @@ export default async function ChatPage() {
       members={members}
       initialMessages={messages}
       initialReactions={reactions}
+      initialReads={reads}
       initialNotifyChat={profile.notify_chat ?? true}
       isOwner={membership.role === "owner"}
     />
