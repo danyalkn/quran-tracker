@@ -6,7 +6,8 @@ import { SUPABASE_URL } from "@/lib/supabase/keys";
 /**
  * Hard-deletes the signed-in user's account. Removing the auth user cascades
  * to every app table (all user FKs are ON DELETE CASCADE), so this wipes
- * profile, logs, messages, nudges, reminders, and push subscriptions too.
+ * profile, logs, messages, nudges, reminders (daily and one-time), and push
+ * subscriptions too.
  * Requires the service-role key (server-only).
  */
 export async function POST() {

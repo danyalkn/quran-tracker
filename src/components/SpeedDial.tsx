@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus } from "lucide-react";
+import { AlarmClockPlus, Plus } from "lucide-react";
 import {
   ENTRY_META,
   type EntryType,
@@ -17,21 +17,32 @@ import { cn } from "@/lib/cn";
 export function SpeedDial({
   mode,
   onPick,
+  onReminder,
   disabled,
   defaultOpen = false,
 }: {
   mode: Mode;
   onPick: (type: EntryType) => void;
+  /** Opens the one-time reminder sheet. Only joins a fan-out that already
+   *  exists: a single-type mode keeps its one-tap FAB (readers log every
+   *  day) and reaches reminders through the section on Today instead. */
+  onReminder?: () => void;
   disabled?: boolean;
   defaultOpen?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const types = TYPES_BY_MODE[mode];
   const single = types.length === 1;
+  const reminderPill = !single && Boolean(onReminder);
 
   const choose = (t: EntryType) => {
     setOpen(false);
     onPick(t);
+  };
+
+  const remind = () => {
+    setOpen(false);
+    onReminder?.();
   };
 
   const onFab = () => {
@@ -50,13 +61,28 @@ export function SpeedDial({
 
       {open && (
         <div className="absolute bottom-[6rem] right-4 z-50 flex flex-col items-end gap-3.5">
+          {/* Reminder sits at the top, apart from the entry types below, in a
+              neutral well so it reads as a different kind of action. */}
+          {reminderPill && (
+            <button
+              onClick={remind}
+              className="mb-1.5 flex items-center gap-3.5 rounded-full bg-surface py-3.5 pl-7 pr-3.5 shadow-e2 [will-change:transform,opacity] animate-[dialIn_170ms_var(--ease-spring)_both]"
+            >
+              <span className="text-[1.0625rem] font-semibold">Remind me</span>
+              <span className="grid size-11 place-items-center rounded-full bg-surface-2 text-muted">
+                <AlarmClockPlus className="size-5" strokeWidth={2.25} />
+              </span>
+            </button>
+          )}
           {types.map((t, i) => {
             const Icon = ENTRY_ICON[t];
             return (
               <button
                 key={t}
                 onClick={() => choose(t)}
-                style={{ animationDelay: `${i * 22}ms` }}
+                style={{
+                  animationDelay: `${(i + (reminderPill ? 1 : 0)) * 22}ms`,
+                }}
                 className="flex items-center gap-3.5 rounded-full bg-surface py-3.5 pl-7 pr-3.5 shadow-e2 [will-change:transform,opacity] animate-[dialIn_170ms_var(--ease-spring)_both]"
               >
                 <span className="text-[1.0625rem] font-semibold">

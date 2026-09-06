@@ -73,6 +73,22 @@ export type Reminder = {
   created_at: string;
 };
 
+/** A one-time reminder for later today or tomorrow, set from the Today page.
+ *  sent_at / skipped_at / due_at are server-owned (insert trigger + cron). */
+export type DayReminder = {
+  id: string;
+  user_id: string;
+  remind_on: string; // YYYY-MM-DD, local to the profile timezone
+  time: string; // "HH:MM:SS"
+  due_at: string; // ISO instant, frozen by the insert trigger
+  expires_at: string; // end of its local day (+ slack), frozen with due_at
+  entry_type: EntryType | null; // null = a general reminder
+  note: string | null;
+  sent_at: string | null; // handed to the push queue
+  skipped_at: string | null; // stayed quiet: that type was logged first
+  created_at: string;
+};
+
 /** Fields collected by the log form (server fills id/user/group/logged_at). */
 export type NewEntry = {
   entry_type: EntryType;

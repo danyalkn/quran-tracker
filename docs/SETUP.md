@@ -57,6 +57,10 @@ Run both files in the Supabase **SQL Editor** (or via the CLI), in order:
 5. `…_push.sql` — pg_cron reminder sweep + @mention trigger (run AFTER the
    push prerequisites in §4 below — needs the Edge Function + Vault secrets).
 6. `…_nudge_push.sql` — push when someone nudges you (run after `…_push.sql`).
+7. Everything after that, in timestamp order (`supabase db push` once the CLI
+   is linked applies whatever is missing). Notably `…_day_reminders.sql` adds
+   the one-time reminders set from the Today page plus the `iqra-day-reminders`
+   job, which runs every minute.
 
 Then create your group and add members with `supabase/admin_examples.sql`.
 Onboarding's profile save needs these applied first.
@@ -111,6 +115,9 @@ the reminder cron every 15 min, and the @mention trigger).
 - **Android/desktop Chrome:** Settings → toggle Push on → Allow.
 - Verify: send a chat message that `@mentions` another installed user; set a
   reminder for the next 15-min slot and confirm it arrives.
+- One-time reminders: on Today, tap the + (hifz: "Remind me") or the
+  "Remind me later today" row, pick "In 30 min" or an exact time, and confirm
+  the push arrives within a minute of that time.
 
 ## 5. Deploy (Vercel)
 

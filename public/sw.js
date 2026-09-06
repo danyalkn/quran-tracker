@@ -73,7 +73,9 @@ self.addEventListener("push", (event) => {
     body: payload.body || "",
     icon: "/icons/icon-192.png",
     badge: "/icons/badge-72.png",
-    tag: payload.tag, // collapse same-kind notifications (e.g. reminders)
+    // Collapse same-kind notifications (e.g. daily reminders). One-time day
+    // reminders carry a per-row tag on purpose so two the same evening stack.
+    tag: payload.tag,
     // Without renotify, Android replaces a same-tag notification SILENTLY -
     // yesterday's reminder still in the tray mutes today's entirely.
     renotify: Boolean(payload.tag),

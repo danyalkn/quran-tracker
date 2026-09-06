@@ -18,16 +18,45 @@ import {
   DEFAULT_MUSHAF,
   type MushafId,
 } from "@/lib/mushaf";
-import type { LogRow, NewEntry } from "@/lib/types";
+import type { DayReminder, LogRow, NewEntry } from "@/lib/types";
 import { localDate, todayLocal, currentStreak, longestStreak } from "@/lib/dates";
 import { cn } from "@/lib/cn";
 import { Avatar } from "@/components/ui/Avatar";
 import { SpeedDial } from "@/components/SpeedDial";
 import { LogSheet } from "@/components/LogSheet";
 import { EntryRow } from "@/components/EntryRow";
+import { DayReminders, type DayRemindersHandle } from "@/components/DayReminders";
 import { Celebration, CELEBRATE_KEY } from "@/components/Celebration";
 
 type Filter = "all" | "new" | "revision";
+
+/** Session memory of reminder deep links already acted on, so the sheet
+ *  opens once per notification tap and never again from Back or a reload.
+ *  Keyed by reminder id; a link without one (typed by hand) always opens. */
+const CONSUMED_KEY = "iqra:log-link-consumed";
+
+function deepLinkConsumed(key: string | null): boolean {
+  if (!key || typeof window === "undefined") return false;
+  try {
+    return (sessionStorage.getItem(CONSUMED_KEY) ?? "").split(",").includes(key);
+  } catch {
+    return false;
+  }
+}
+
+function markDeepLinkConsumed(key: string | null): void {
+  if (!key) return;
+  try {
+    const seen = (sessionStorage.getItem(CONSUMED_KEY) ?? "")
+      .split(",")
+      .filter(Boolean);
+    if (!seen.includes(key)) {
+      sessionStorage.setItem(CONSUMED_KEY, [...seen.slice(-19), key].join(","));
+    }
+  } catch {
+    // Private mode or storage blocked: the URL strip still covers reloads.
+  }
+}
 
 /** True when a write failed only because the mushaf column isn't in the schema
  *  yet (migration not applied). Logging then retries without it, so a pending
@@ -44,6 +73,10 @@ export function TodayClient({
   userId,
   groupId,
   initialEntries,
+  initialDayReminders,
+  serverNow,
+  openLog,
+  openLogKey,
   mushaf,
 }: {
   mode: Mode;
@@ -53,17 +86,46 @@ export function TodayClient({
   userId: string;
   groupId: string | null;
   initialEntries: LogRow[];
+  initialDayReminders: DayReminder[];
+  /** Server clock at render (hydration-safe seed for the reminders list). */
+  serverNow: number;
+  /** Entry type to open the log sheet on straight away (reminder deep link). */
+  openLog: EntryType | null;
+  /** The reminder behind that deep link; opened once per session, so Back
+   *  or a cached payload can't pop the sheet up again. */
+  openLogKey: string | null;
   mushaf: MushafId;
 }) {
   const [entries, setEntries] = useState<LogRow[]>(initialEntries);
   const [filter, setFilter] = useState<Filter>("all");
-  const [sheetOpen, setSheetOpen] = useState(false);
+  // A deep link opens the sheet from the first render. Safe: Sheet renders
+  // nothing until mounted, so server and client HTML agree either way.
+  const [sheetOpen, setSheetOpen] = useState(
+    () => openLog != null && !!groupId && !deepLinkConsumed(openLogKey),
+  );
   const [sheetType, setSheetType] = useState<EntryType>(
-    mode === "hifz" ? "sabak" : "reading",
+    openLog ?? (mode === "hifz" ? "sabak" : "reading"),
   );
   const [editingEntry, setEditingEntry] = useState<LogRow | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const remindersRef = useRef<DayRemindersHandle>(null);
+
+  // Consume the deep link: remember it, then drop the query from the URL.
+  // The strip is deferred a tick so it reaches Next's patched replaceState
+  // (the router installs it in a parent effect, which runs after ours) and
+  // the history entry keeps the router state Back needs. router.replace
+  // would also work but re-runs the page's server queries for nothing.
+  useEffect(() => {
+    if (!openLog) return;
+    markDeepLinkConsumed(openLogKey);
+    const t = setTimeout(() => {
+      if (window.location.search) {
+        window.history.replaceState(null, "", "/today");
+      }
+    }, 0);
+    return () => clearTimeout(t);
+  }, [openLog, openLogKey]);
 
   // Confetti-on-reading preference (device-local; toggled in Settings).
   const [celebrateTick, setCelebrateTick] = useState(0);
@@ -353,6 +415,19 @@ export function TodayClient({
 
       {/* Entries */}
       <div className="mt-4 flex-1 space-y-2.5 overflow-y-auto px-5 pb-28">
+        {/* One-time reminders for later today - the section is also the
+            reminder door for single-type modes, whose FAB never fans out. */}
+        {groupId && (
+          <DayReminders
+            ref={remindersRef}
+            userId={userId}
+            tz={tz}
+            mode={mode}
+            initial={initialDayReminders}
+            entries={entries}
+            serverNow={serverNow}
+          />
+        )}
         {!groupId ? (
           <EmptyState
             icon={UserPlus}
@@ -388,7 +463,12 @@ export function TodayClient({
         )}
       </div>
 
-      <SpeedDial mode={mode} onPick={handlePick} disabled={!groupId} />
+      <SpeedDial
+        mode={mode}
+        onPick={handlePick}
+        onReminder={() => remindersRef.current?.open()}
+        disabled={!groupId}
+      />
 
       <LogSheet
         open={sheetOpen}

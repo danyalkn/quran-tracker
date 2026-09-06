@@ -12,9 +12,37 @@ export function todayLocal(tz: string): string {
   return localDate(new Date(), tz);
 }
 
+/** The clock, for a server page to hand a client component as a prop so the
+ *  server HTML and the first client paint agree on "now" (which reminders
+ *  are already due). Server pages render once per request, so there is no
+ *  re-render purity concern; this just keeps the read out of JSX. */
+export function nowMs(): number {
+  return Date.now();
+}
+
 /** Yesterday's local date (YYYY-MM-DD) in the given timezone. */
 export function yesterdayLocal(tz: string): string {
   return prevYmd(todayLocal(tz));
+}
+
+/** Tomorrow's local date (YYYY-MM-DD) in the given timezone. */
+export function tomorrowLocal(tz: string): string {
+  return nextYmd(todayLocal(tz));
+}
+
+/** Local wall-clock time ("HH:MM", 24h) of an instant, in the given timezone.
+ *  Sortable and storable, unlike the display-only `timeLabel`. */
+export function localHm(ts: string | number | Date, tz: string): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    hourCycle: "h23",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).formatToParts(new Date(ts));
+  const p: Record<string, string> = {};
+  for (const part of parts) p[part.type] = part.value;
+  // Some engines still render midnight as 24 - fold it (see tzOffsetMs).
+  return `${String(+p.hour % 24).padStart(2, "0")}:${p.minute}`;
 }
 
 /** How far `tz` is ahead of UTC at a given instant, in ms. */
@@ -49,12 +77,18 @@ function tzOffsetMs(instant: Date, tz: string): number {
  * Two passes so the offset is read at (close to) the target instant, which
  * keeps it correct across DST boundaries.
  */
-export function zonedIso(ymd: string, hour: number, tz: string): string {
+export function zonedIso(
+  ymd: string,
+  hour: number,
+  tz: string,
+  minute = 0,
+): string {
   const naive = Date.UTC(
     +ymd.slice(0, 4),
     +ymd.slice(5, 7) - 1,
     +ymd.slice(8, 10),
     hour,
+    minute,
   );
   let ts = naive - tzOffsetMs(new Date(naive), tz);
   ts = naive - tzOffsetMs(new Date(ts), tz);
@@ -156,7 +190,8 @@ export function longestStreak(loggedDays: Set<string>): number {
   return best;
 }
 
-function nextYmd(ymd: string): string {
+/** The local date after `ymd` (YYYY-MM-DD). */
+export function nextYmd(ymd: string): string {
   const d = new Date(`${ymd}T12:00:00`);
   d.setDate(d.getDate() + 1);
   return d.toLocaleDateString("en-CA");

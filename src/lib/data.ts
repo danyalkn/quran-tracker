@@ -2,6 +2,7 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type {
   ChatRead,
+  DayReminder,
   LogRow,
   Membership,
   Reminder,
@@ -195,4 +196,23 @@ export async function getMyReminders(userId: string): Promise<Reminder[]> {
     .eq("user_id", userId)
     .order("time", { ascending: true });
   return (data as Reminder[] | null) ?? [];
+}
+
+/** The current user's one-time reminders between two profile-local dates
+ *  (inclusive; Today asks for today..tomorrow), soonest first. */
+export async function getMyDayReminders(
+  userId: string,
+  fromYmd: string,
+  toYmd: string,
+): Promise<DayReminder[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("day_reminders")
+    .select("*")
+    .eq("user_id", userId)
+    .gte("remind_on", fromYmd)
+    .lte("remind_on", toYmd)
+    .order("remind_on", { ascending: true })
+    .order("time", { ascending: true });
+  return (data as DayReminder[] | null) ?? [];
 }

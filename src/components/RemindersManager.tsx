@@ -8,7 +8,7 @@ import { DAY_INITIALS, formatTime, daysSummary } from "@/lib/reminders";
 import { cn } from "@/lib/cn";
 import { Sheet } from "@/components/ui/Sheet";
 import { Button } from "@/components/ui/Button";
-import { FieldLabel } from "@/components/ui/Field";
+import { FieldLabel, TimeInput } from "@/components/ui/Field";
 
 const ALL = [0, 1, 2, 3, 4, 5, 6];
 const WEEKDAYS = [1, 2, 3, 4, 5];
@@ -122,6 +122,11 @@ export function RemindersManager({
         </div>
       )}
 
+      <p className="mt-2 px-1 text-footnote text-faint">
+        Need a one-time nudge for later today or tomorrow? Set it from the
+        Today page.
+      </p>
+
       <ReminderSheet
         key={editing === "new" ? "new" : (editing?.id ?? "closed")}
         userId={userId}
@@ -223,15 +228,7 @@ export function ReminderSheet({
         </h2>
 
         <FieldLabel>Time</FieldLabel>
-        <div className="flex items-center gap-2 rounded-xl border border-border bg-surface px-3.5 py-2.5">
-          <Clock className="size-4 text-faint" />
-          <input
-            type="time"
-            value={time}
-            onChange={(e) => setTime(e.target.value)}
-            className="flex-1 bg-transparent text-callout text-foreground outline-none"
-          />
-        </div>
+        <TimeInput value={time} onChange={setTime} ariaLabel="Time" />
 
         <div className="mt-5">
           <FieldLabel>Repeat on</FieldLabel>
