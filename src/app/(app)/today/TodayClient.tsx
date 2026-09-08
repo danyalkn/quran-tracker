@@ -19,7 +19,13 @@ import {
   type MushafId,
 } from "@/lib/mushaf";
 import type { DayReminder, LogRow, NewEntry } from "@/lib/types";
-import { localDate, todayLocal, currentStreak, longestStreak } from "@/lib/dates";
+import {
+  localDate,
+  todayLocal,
+  currentStreak,
+  longestStreak,
+  hijriDate,
+} from "@/lib/dates";
 import { cn } from "@/lib/cn";
 import { Avatar } from "@/components/ui/Avatar";
 import { SpeedDial } from "@/components/SpeedDial";
@@ -175,6 +181,8 @@ export function TodayClient({
     day: "numeric",
     month: "long",
   });
+  // Same instant on the Islamic calendar; hidden if the runtime lacks it.
+  const hijriLabel = hijriDate(new Date(), tz);
 
   const handlePick = (t: EntryType) => {
     setEditingEntry(null);
@@ -340,6 +348,9 @@ export function TodayClient({
               {dateLabel}
             </p>
             <h1 className="mt-1 text-display">Today</h1>
+            {hijriLabel && (
+              <p className="mt-0.5 text-footnote text-muted">{hijriLabel}</p>
+            )}
           </div>
           <Link href="/settings" aria-label="Settings">
             <Avatar name={displayName} src={avatarUrl} />

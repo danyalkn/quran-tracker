@@ -103,6 +103,44 @@ export function zonedIso(
   return new Date(ts).toISOString();
 }
 
+/* Umm al-Qura month names, in the transliteration this circle actually uses
+ * (Intl's own are the terser "Rabiʻ I" style). Index = Hijri month - 1. */
+const HIJRI_MONTHS = [
+  "Muharram",
+  "Safar",
+  "Rabi’ al-Awwal",
+  "Rabi’ al-Thani",
+  "Jumada al-Ula",
+  "Jumada al-Akhirah",
+  "Rajab",
+  "Sha’ban",
+  "Ramadan",
+  "Shawwal",
+  "Dhul-Qa’dah",
+  "Dhul-Hijjah",
+];
+
+/** Hijri date like "26 Rabi’ al-Awwal 1448 AH" for an instant, in the given
+ *  timezone (Umm al-Qura calendar via Intl). Empty string if the runtime has
+ *  no Islamic calendar data, so callers can simply hide it. */
+export function hijriDate(ts: string | number | Date, tz: string): string {
+  try {
+    const parts = new Intl.DateTimeFormat("en-u-ca-islamic-umalqura", {
+      timeZone: tz,
+      day: "numeric",
+      month: "numeric",
+      year: "numeric",
+    }).formatToParts(new Date(ts));
+    const p: Record<string, string> = {};
+    for (const part of parts) p[part.type] = part.value;
+    const month = HIJRI_MONTHS[+p.month - 1];
+    if (!month || !p.day || !p.year) return "";
+    return `${+p.day} ${month} ${p.year} AH`;
+  } catch {
+    return "";
+  }
+}
+
 /** Short label like "Mon · 6 Jun" for a local date string. */
 export function dayLabel(ymd: string): string {
   // Parse as a local-noon date to avoid TZ drift on the label itself.
