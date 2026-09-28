@@ -57,3 +57,27 @@ export async function deleteEntry(id: string): Promise<string | null> {
   const { error } = await supabase.from("log_entries").delete().eq("id", id);
   return error ? "Couldn’t delete that entry." : null;
 }
+
+/* Pages restored from the router cache (browser back/forward) remount with
+ * the entries they were first rendered with. When the Journal changes an
+ * entry it leaves this flag, and Today refetches its entries on mount. */
+const CHANGED_KEY = "iqra:entries-changed";
+
+export function markEntriesChanged(): void {
+  try {
+    sessionStorage.setItem(CHANGED_KEY, "1");
+  } catch {
+    // Storage blocked: Today just shows its cached list until a reload.
+  }
+}
+
+/** True once after the Journal changed something (the flag is cleared). */
+export function takeEntriesChanged(): boolean {
+  try {
+    const changed = sessionStorage.getItem(CHANGED_KEY) === "1";
+    if (changed) sessionStorage.removeItem(CHANGED_KEY);
+    return changed;
+  } catch {
+    return false;
+  }
+}

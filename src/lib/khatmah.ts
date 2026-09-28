@@ -142,7 +142,9 @@ export function khatmahPosition(pagesIn: number): KhatmahPosition {
   };
 }
 
-/** Average pages per day over the trailing `windowDays` (inclusive of today). */
+/** Average pages per day over the trailing `windowDays` (inclusive of
+ *  today), or over the days since the first entry when that's fewer - a
+ *  three-day-old circle's pace is three days' pages over three days. */
 export function recentPace(
   rows: KhatmahRow[],
   tz: string,
@@ -152,11 +154,20 @@ export function recentPace(
   const cutoff = new Date(`${today}T12:00:00`);
   cutoff.setDate(cutoff.getDate() - (windowDays - 1));
   const floor = cutoff.toLocaleDateString("en-CA");
+  // Rows more than a couple of days older than the window can't land in it
+  // in any timezone; skip them before the (costlier) local-date conversion.
+  const early = new Date(cutoff.getTime() - 2 * 86_400_000).toISOString();
   let sum = 0;
+  let first: string | null = null;
   for (const r of rows) {
-    if (!r.pages_equiv) continue;
+    if (!r.pages_equiv || !(+r.pages_equiv > 0)) continue;
+    if (first == null || r.logged_at < first) first = r.logged_at;
+    if (r.logged_at < early) continue;
     const d = localDate(r.logged_at, tz);
     if (d >= floor && d <= today) sum += +r.pages_equiv;
   }
-  return sum / windowDays;
+  if (first == null) return 0;
+  const firstDay = localDate(first, tz);
+  const span = firstDay > floor ? dayDiff(firstDay, today) + 1 : windowDays;
+  return sum / Math.max(1, span);
 }

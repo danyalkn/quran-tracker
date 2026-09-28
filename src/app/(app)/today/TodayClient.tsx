@@ -4,7 +4,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Inbox, UserPlus, Bookmark, NotebookPen } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { deleteEntry, isMissingMushaf, updateEntry } from "@/lib/entryWrites";
+import {
+  deleteEntry,
+  isMissingMushaf,
+  takeEntriesChanged,
+  updateEntry,
+} from "@/lib/entryWrites";
 import {
   bucketOf,
   isReadingType,
@@ -126,6 +131,27 @@ export function TodayClient({
     }, 0);
     return () => clearTimeout(t);
   }, [openLog, openLogKey]);
+
+  // Back from the Journal after it edited or deleted entries: the router may
+  // have restored this page with its old list, so fetch a fresh one.
+  useEffect(() => {
+    if (!groupId || !takeEntriesChanged()) return;
+    let cancelled = false;
+    const since = new Date(Date.now() - 120 * 24 * 60 * 60 * 1000).toISOString();
+    createClient()
+      .from("log_entries")
+      .select("*")
+      .eq("group_id", groupId)
+      .eq("user_id", userId)
+      .gte("logged_at", since)
+      .order("logged_at", { ascending: false })
+      .then(({ data }) => {
+        if (!cancelled && data) setEntries(data as LogRow[]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [groupId, userId]);
 
   // Confetti-on-reading preference (device-local; toggled in Settings).
   const [celebrateTick, setCelebrateTick] = useState(0);

@@ -12,7 +12,7 @@ import {
   YAxis,
 } from "recharts";
 import type { Mode } from "@/lib/entries";
-import { dayLabel, lastNDaysEndingOn, localDate, monthLabel } from "@/lib/dates";
+import { dayLabel, lastNDaysEndingOn, localDate, monthKey, monthLabel } from "@/lib/dates";
 import {
   juzForPage,
   juzStartPages,
@@ -143,13 +143,13 @@ function HifzView({
       </div>
       <p className="mt-0.5 text-footnote text-muted">
         {fmt(cov.covered)} of {cov.length} pages of Juz {juz} logged as sabak
-        {cov.unplaced > 0 && cov.halves.size > 0
+        {cov.unplaced > 0 && cov.quarters.size > 0
           ? ` (${fmt(cov.unplaced)} without a set start)`
           : ""}
       </p>
 
       <JuzPageGrid cov={cov} />
-      {cov.halves.size === 0 && (
+      {cov.quarters.size === 0 && (
         <p className="mt-1.5 text-caption text-faint">
           Set “Starts at” when you log a sabak and these squares fill in page by
           page, top half and bottom half.
@@ -227,26 +227,25 @@ function HifzView({
   );
 }
 
-/** The latest juz, page by page: each page is two cells (top/bottom half). */
+/** The latest juz, page by page: each page is two cells (top/bottom half);
+ *  a half with only one of its quarters memorized is filled lighter. */
 function JuzPageGrid({ cov }: { cov: JuzCoverage }) {
   const pages = Array.from({ length: cov.length }, (_, i) => i + 1);
+  const halfState = (h: number) => {
+    const n = (cov.quarters.has(h) ? 1 : 0) + (cov.quarters.has(h + 0.25) ? 1 : 0);
+    return n === 2 ? "bg-accent" : n === 1 ? "bg-accent/45" : "bg-surface-2";
+  };
   return (
     <div
       role="img"
-      aria-label={`${fmt(cov.halves.size / 2)} of ${cov.length} pages placed in Juz ${cov.juz}`}
+      aria-label={`${fmt(cov.quarters.size / 4)} of ${cov.length} pages placed in Juz ${cov.juz}`}
       className="mt-3 grid gap-[2px]"
       style={{ gridTemplateColumns: `repeat(${cov.length}, minmax(0, 1fr))` }}
     >
       {pages.map((p) => (
         <span key={p} className="flex flex-col gap-[2px]">
           {[p, p + 0.5].map((h) => (
-            <span
-              key={h}
-              className={cn(
-                "h-2.5 rounded-[2px]",
-                cov.halves.has(h) ? "bg-accent" : "bg-surface-2",
-              )}
-            />
+            <span key={h} className={cn("h-2.5 rounded-[2px]", halfState(h))} />
           ))}
         </span>
       ))}
@@ -312,7 +311,8 @@ function ReadingView({
 }) {
   const colors = useChartColors();
 
-  // Is the bookmark current? Only if the latest reading set a last page.
+  // Is the bookmark current? Yes if any of the last three readings set a
+  // last page (one backdated entry without a page doesn't make it stale).
   const reads = useMemo(
     () =>
       rows
@@ -320,7 +320,7 @@ function ReadingView({
         .sort((a, b) => new Date(a.logged_at).getTime() - new Date(b.logged_at).getTime()),
     [rows],
   );
-  const current = reads.length > 0 && !!reads[reads.length - 1].to_ref;
+  const current = reads.slice(-3).some((r) => !!r.to_ref);
 
   // Pages read per day, cumulative (the fallback when the bookmark is stale).
   const cumulative = useMemo(() => {
@@ -336,14 +336,19 @@ function ReadingView({
     return out;
   }, [reads, tz]);
 
-  // 14-day pace for the finish estimate (reading pages only).
+  // Pace over the last 14 days for the finish estimate (reading pages only),
+  // or over however many days there are when reading started more recently.
   const pace = useMemo(() => {
-    const days = new Set(lastNDaysEndingOn(today, 14));
+    if (reads.length === 0) return 0;
+    const window = lastNDaysEndingOn(today, 14);
+    const firstDay = localDate(reads[0].logged_at, tz);
+    const span = window.filter((d) => d >= firstDay).length || 1;
+    const days = new Set(window);
     return (
       reads.reduce(
         (s, r) => (days.has(localDate(r.logged_at, tz)) ? s + (r.pages_equiv ? +r.pages_equiv : 0) : s),
         0,
-      ) / 14
+      ) / span
     );
   }, [reads, tz, today]);
 
@@ -367,18 +372,7 @@ function ReadingView({
   const maxCum = cumulative.length ? cumulative[cumulative.length - 1].total : 0;
 
   const months = current
-    ? monthSpans(reading.trail, (p) => p.page)
-        .slice(0, 3)
-        .map((m) => {
-          const from = m.before ?? m.from;
-          const text =
-            m.to < from - total / 2
-              ? `finished a khatm, now p.${m.to}`
-              : from === m.to
-                ? `stayed on p.${m.to}`
-                : `p.${from} to p.${m.to}`;
-          return { month: m.month, text };
-        })
+    ? readingMonths(reading.trail, total).slice(0, 3)
     : monthSpans(cumulative, (p) => p.total)
         .slice(0, 3)
         .map((m) => ({
@@ -506,6 +500,39 @@ function ReadingView({
       <MonthList today={today} rows={months} />
     </>
   );
+}
+
+/** Bookmark movement per month, newest first. Counts khatm wraps inside the
+ *  month so finishing one never reads as the bookmark going backwards. */
+function readingMonths(
+  trail: { date: string; page: number }[],
+  total: number,
+): { month: string; text: string }[] {
+  const months: { month: string; start: number | null; first: number; to: number; wraps: number }[] = [];
+  let prev: number | null = null;
+  for (const p of trail) {
+    const month = monthKey(p.date);
+    let cur = months[months.length - 1];
+    if (!cur || cur.month !== month) {
+      cur = { month, start: prev, first: p.page, to: p.page, wraps: 0 };
+      months.push(cur);
+    }
+    if (prev != null && p.page < prev && prev - p.page > total / 2) cur.wraps++;
+    cur.to = p.page;
+    prev = p.page;
+  }
+  return months.reverse().map((m) => {
+    const from = m.start ?? m.first;
+    const text =
+      m.wraps > 0
+        ? `finished ${m.wraps === 1 ? "a khatm" : `${m.wraps} khatms`}, now p.${m.to}`
+        : from === m.to
+          ? m.start == null
+            ? `started at p.${m.to}`
+            : `stayed on p.${m.to}`
+          : `p.${from} to p.${m.to}`;
+    return { month: m.month, text };
+  });
 }
 
 /** Newest months first: the month-by-month stat under each chart. */

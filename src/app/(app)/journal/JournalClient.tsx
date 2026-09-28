@@ -8,7 +8,7 @@ import { pageFromRef, type MushafId } from "@/lib/mushaf";
 import { absolutePage, rowJuzPage } from "@/lib/position";
 import type { LogRow, NewEntry } from "@/lib/types";
 import { dayLabel, localDate, todayLocal, yesterdayLocal } from "@/lib/dates";
-import { deleteEntry, updateEntry } from "@/lib/entryWrites";
+import { deleteEntry, markEntriesChanged, updateEntry } from "@/lib/entryWrites";
 import { pagesEquiv } from "@/lib/entries";
 import { cn } from "@/lib/cn";
 import { EntryRow } from "@/components/EntryRow";
@@ -75,13 +75,19 @@ export function JournalClient({
     return [...new Set(order)].filter((t) => present.has(t));
   }, [entries, mode]);
 
+  // A type whose last entry was deleted drops out of the chips; fall back to
+  // all types rather than leave an invisible filter on.
+  const activeType: TypeFilter =
+    type !== "all" && !typeChips.includes(type) ? "all" : type;
+
   const filtered = useMemo(
     () =>
       entries.filter(
         (e) =>
-          (!notesOnly || !!e.notes) && (type === "all" || e.entry_type === type),
+          (!notesOnly || !!e.notes) &&
+          (activeType === "all" || e.entry_type === activeType),
       ),
-    [entries, notesOnly, type],
+    [entries, notesOnly, activeType],
   );
   const shown = useMemo(() => filtered.slice(0, limit), [filtered, limit]);
 
@@ -96,9 +102,11 @@ export function JournalClient({
     return out;
   }, [shown, tz]);
 
+  // By juz groups the WHOLE filtered list (a juz section must be complete),
+  // and "Show more" reveals whole sections instead of the next rows by date.
   const byJuz = useMemo(() => {
     const groups = new Map<number, LogRow[]>();
-    for (const e of shown) {
+    for (const e of filtered) {
       const key = e.juz ?? 0; // 0 = no juz recorded
       const list = groups.get(key);
       if (list) list.push(e);
@@ -115,15 +123,31 @@ export function JournalClient({
     return [...groups.entries()].sort(
       (a, b) => (a[0] || 99) - (b[0] || 99),
     );
-  }, [shown]);
+  }, [filtered]);
+  const juzShown = useMemo(() => {
+    const out: [number, LogRow[]][] = [];
+    let rows = 0;
+    for (const g of byJuz) {
+      if (out.length > 0 && rows + g[1].length > limit) break;
+      out.push(g);
+      rows += g[1].length;
+    }
+    return { groups: out, rows };
+  }, [byJuz, limit]);
+  const hiddenCount =
+    view === "day"
+      ? filtered.length - shown.length
+      : filtered.length - juzShown.rows;
 
   const dayHeading = (ymd: string) =>
     ymd === today ? "Today" : ymd === yesterday ? "Yesterday" : dayLabel(ymd);
 
+  // Failed writes roll back only the row they touched, so a failure never
+  // undoes another edit or delete that succeeded in the meantime.
   const handleSave = async (payload: NewEntry) => {
     if (!editing) return;
     const id = editing.id;
-    const prev = entries;
+    const before = entries.find((e) => e.id === id);
     const { logged_at: _omit, ...fields } = payload;
     void _omit;
     setEntries((p) =>
@@ -136,22 +160,32 @@ export function JournalClient({
     setError(null);
     const { row, error: err } = await updateEntry(id, payload);
     if (err || !row) {
-      setEntries(prev);
+      if (before) setEntries((p) => p.map((e) => (e.id === id ? before : e)));
       setError(err ?? "Couldn’t save your changes. Try again.");
       return;
     }
     setEntries((p) => p.map((e) => (e.id === id ? row : e)));
+    markEntriesChanged();
   };
 
   const handleDelete = async (id: string) => {
-    const prev = entries;
+    const removed = entries.find((e) => e.id === id);
     setEntries((p) => p.filter((e) => e.id !== id));
     setError(null);
     const err = await deleteEntry(id);
     if (err) {
-      setEntries(prev);
+      // Put it back where it belongs (the list is newest first).
+      if (removed) {
+        setEntries((p) =>
+          [...p, removed].sort((a, b) =>
+            a.logged_at < b.logged_at ? 1 : a.logged_at > b.logged_at ? -1 : 0,
+          ),
+        );
+      }
       setError(err);
+      return;
     }
+    markEntriesChanged();
   };
 
   const countLabel = notesOnly
@@ -213,13 +247,13 @@ export function JournalClient({
           {typeChips.length > 1 && (
             <>
               <span className="my-1 w-px shrink-0 bg-border" />
-              <Chip active={type === "all"} onClick={() => setType("all")}>
+              <Chip active={activeType === "all"} onClick={() => setType("all")}>
                 All types
               </Chip>
               {typeChips.map((t) => (
                 <Chip
                   key={t}
-                  active={type === t}
+                  active={activeType === t}
                   onClick={() => {
                     setType(t);
                     setLimit(PAGE);
@@ -271,7 +305,7 @@ export function JournalClient({
             </section>
           ))
         ) : (
-          byJuz.map(([juz, rows]) => (
+          juzShown.groups.map(([juz, rows]) => (
             <section key={juz}>
               <div className="mb-2 flex items-baseline justify-between px-1">
                 <p className="text-footnote font-medium uppercase tracking-wider text-faint">
@@ -286,12 +320,14 @@ export function JournalClient({
           ))
         )}
 
-        {filtered.length > limit && (
+        {hiddenCount > 0 && (
           <button
             onClick={() => setLimit((l) => l + PAGE)}
             className="w-full rounded-xl bg-surface-2 py-2.5 text-subhead font-medium text-muted"
           >
-            Show more ({filtered.length - limit} older)
+            {view === "day"
+              ? `Show more (${hiddenCount} older)`
+              : `Show more juz (${hiddenCount} more ${hiddenCount === 1 ? "entry" : "entries"})`}
           </button>
         )}
       </div>

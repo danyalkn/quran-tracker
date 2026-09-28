@@ -1,10 +1,24 @@
 /** Date helpers that respect each user's IANA timezone (streaks + "today"
  *  are local-day concepts). No external date library needed. */
 
+/** One formatter per timezone: building an Intl formatter is the expensive
+ *  part, and the stats pages convert thousands of timestamps. */
+const YMD_FORMATTERS = new Map<string, Intl.DateTimeFormat>();
+
 /** Local calendar date (YYYY-MM-DD) of an instant, in the given timezone. */
 export function localDate(ts: string | number | Date, tz: string): string {
-  // en-CA renders as YYYY-MM-DD.
-  return new Date(ts).toLocaleDateString("en-CA", { timeZone: tz });
+  let f = YMD_FORMATTERS.get(tz);
+  if (!f) {
+    // en-CA renders as YYYY-MM-DD.
+    f = new Intl.DateTimeFormat("en-CA", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    YMD_FORMATTERS.set(tz, f);
+  }
+  return f.format(new Date(ts));
 }
 
 /** Today's local date (YYYY-MM-DD) in the given timezone. */

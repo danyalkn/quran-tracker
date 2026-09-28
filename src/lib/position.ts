@@ -4,8 +4,8 @@
  *
  * Storage: structured hifz rows already carry `juz` + `amount` (pages).
  * The start of the portion is stored in `from_ref` as the JUZ-RELATIVE page
- * the portion begins on, in half-page steps: "3" = top of the 3rd page of
- * the juz, "3.5" = its second half. `from_ref` is the schema's free-text
+ * the portion begins on, in quarter-page steps: "3" = top of the 3rd page of
+ * the juz, "3.5" = its second half, "3.25" = its second quarter. `from_ref` is the schema's free-text
  * "what was covered" column; hifz rows never used it (the log form always
  * wrote null), and reading rows keep their bookmark in `to_ref`, so no
  * migration is needed and old rows simply read as "no position".
@@ -37,30 +37,53 @@ export function juzLength(m: MushafId | null | undefined, juz: number): number {
   return end - starts[j - 1] + 1;
 }
 
-/** Parse a stored juz-relative start ("3", "3.5"). Anything else = no position. */
+/** Snap to the nearest quarter page. */
+export const toQuarter = (n: number) => Math.round(n * 4) / 4;
+
+/** Parse a stored juz-relative start ("3", "3.5", "3.25"). Anything else =
+ *  no position. */
 export function parseJuzPage(ref: string | null | undefined): number | null {
-  if (!ref || !/^\d{1,2}(\.5)?$/.test(ref)) return null;
+  if (!ref || !/^\d{1,2}(\.(25|5|75))?$/.test(ref)) return null;
   const n = Number(ref);
   return n >= 1 ? n : null;
 }
 
 /** Serialize a juz-relative start for `from_ref`. */
 export function serializeJuzPage(n: number): string {
-  return String(Math.round(n * 2) / 2);
+  return String(toQuarter(n));
 }
 
-/** Wheel label for a start: 3 → "3", 3.5 → "3½". */
+const FRACTION: Record<string, string> = { "0.25": "¼", "0.5": "½", "0.75": "¾" };
+
+/** Wheel label for a start: 3 → "3", 3.5 → "3½", 3.25 → "3¼". */
 export function juzPageLabel(n: number): string {
   const whole = Math.floor(n);
-  return n - whole >= 0.5 ? `${whole}½` : String(whole);
+  return `${whole}${FRACTION[String(toQuarter(n - whole))] ?? ""}`;
 }
 
-/** Every start a juz offers, in half-page steps: [1, 1.5, 2, …, len + 0.5]. */
-export function juzPageOptions(m: MushafId | null | undefined, juz: number): number[] {
+/** Parse a wheel label back ("3½" → 3.5). */
+export function juzPageFromLabel(label: string): number | null {
+  const m = label.match(/^(\d+)([¼½¾]?)$/);
+  if (!m) return null;
+  return Number(m[1]) + (m[2] === "¼" ? 0.25 : m[2] === "½" ? 0.5 : m[2] === "¾" ? 0.75 : 0);
+}
+
+/** Every start a juz offers: [1, 1.5, …, len + 0.5] in half-page steps, or
+ *  [1, 1.25, …, len + 0.75] in quarter steps. */
+export function juzPageOptions(
+  m: MushafId | null | undefined,
+  juz: number,
+  step: 0.5 | 0.25 = 0.5,
+): number[] {
   const len = juzLength(m, juz);
   const out: number[] = [];
-  for (let p = 1; p <= len + 0.5; p += 0.5) out.push(p);
+  for (let p = 1; p <= len + 1 - step + 1e-9; p += step) out.push(toQuarter(p));
   return out;
+}
+
+/** True when a start or amount needs quarter steps to be represented. */
+export function needsQuarters(...values: (number | null | undefined)[]): boolean {
+  return values.some((v) => v != null && toQuarter(+v * 2) % 1 !== 0);
 }
 
 /** Absolute mushaf page a juz-relative position falls on. */
@@ -87,31 +110,45 @@ export function pagesPhrase(n: number): string {
   return `${pagesAmountLabel(n)} ${n > 0 && n <= 1 ? "page" : "pages"}`;
 }
 
+const ORDINAL = ["1st", "2nd", "3rd", "4th"];
+
+/** Which shape of label a (start, amount) pair gets - see positionLabel. */
+function labelKind(start: number, a: number): "half" | "quarter" | "pages" | "from" {
+  const frac = toQuarter(start - Math.floor(start));
+  if (a === 0.5 && (frac === 0 || frac === 0.5)) return "half";
+  if (a === 0.25) return "quarter";
+  if (frac === 0 && Number.isInteger(a) && a >= 1) return "pages";
+  return "from";
+}
+
 /**
  * Human label for a portion inside a juz:
- *   start 3,   ½ page  → "p.3, 1st half"
- *   start 3.5, ½ page  → "p.3, 2nd half"
- *   start 4,   1 page  → "p.4"
- *   start 1,   3 pages → "p.1–3"
- *   anything else      → "from p.3½" (the amount is shown alongside)
+ *   start 3,    ½ page  → "p.3, 1st half"
+ *   start 3.5,  ½ page  → "p.3, 2nd half"
+ *   start 3.25, ¼ page  → "p.3, 2nd quarter"
+ *   start 4,    1 page  → "p.4"
+ *   start 1,    3 pages → "p.1–3"
+ *   anything else       → "from p.3½" (the amount is shown alongside)
  */
 export function positionLabel(start: number, amount: number | null | undefined): string {
   const a = amount == null ? 0 : +amount;
   const whole = Math.floor(start);
-  const half = start - whole >= 0.5;
-  // Half a page or less stays inside one half of one page.
-  if (a > 0 && a <= 0.5) return `p.${whole}, ${half ? "2nd" : "1st"} half`;
-  if (!half && Number.isInteger(a) && a >= 1) {
-    return a === 1 ? `p.${whole}` : `p.${whole}–${whole + a - 1}`;
+  const frac = toQuarter(start - whole);
+  switch (labelKind(start, a)) {
+    case "half":
+      return `p.${whole}, ${frac === 0 ? "1st" : "2nd"} half`;
+    case "quarter":
+      return `p.${whole}, ${ORDINAL[frac * 4]} quarter`;
+    case "pages":
+      return a === 1 ? `p.${whole}` : `p.${whole}–${whole + a - 1}`;
+    default:
+      return `from p.${juzPageLabel(start)}`;
   }
-  return `from p.${juzPageLabel(start)}`;
 }
 
 /** True when `positionLabel` already says how much (don't repeat it). */
 export function positionSaysAmount(start: number, amount: number | null | undefined): boolean {
-  const a = amount == null ? 0 : +amount;
-  const half = start - Math.floor(start) >= 0.5;
-  return a === 0.5 || (!half && Number.isInteger(a) && a >= 1);
+  return labelKind(start, amount == null ? 0 : +amount) !== "from";
 }
 
 /** Minimal row shape the position helpers read. */
@@ -132,9 +169,10 @@ export function rowJuzPage(e: PositionedRow): number | null {
 
 /**
  * Where the next sabak should start, continuing from the last one: same juz,
- * right after the last portion (snapped to a half page). Past the end of the
- * juz it rolls to the start of the next juz. Null when the last sabak had no
- * position to continue from.
+ * exactly where the last portion ended (quarter-page precision, so it never
+ * runs ahead of what was memorized). Once the whole last page is done it
+ * rolls to the start of the next juz. Null when the last sabak had no
+ * position to continue from, or finished Juz 30.
  */
 export function nextSabakStart(
   last: PositionedRow | null | undefined,
@@ -143,9 +181,10 @@ export function nextSabakStart(
   if (!last || last.juz == null) return null;
   const start = rowJuzPage(last);
   if (start == null) return null;
-  const next = Math.round((start + (last.amount ? +last.amount : 0)) * 2) / 2;
-  if (next > juzLength(m, last.juz)) {
-    return last.juz < 30 ? { juz: last.juz + 1, start: 1 } : { juz: last.juz, start };
+  const next = toQuarter(start + (last.amount ? +last.amount : 0));
+  // Starts run up to the last quarter of the last page (len + 0.75).
+  if (next >= juzLength(m, last.juz) + 1) {
+    return last.juz < 30 ? { juz: last.juz + 1, start: 1 } : null;
   }
   return { juz: last.juz, start: next };
 }

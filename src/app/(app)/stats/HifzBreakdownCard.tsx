@@ -4,8 +4,7 @@ import { useMemo } from "react";
 import {
   Bar,
   BarChart,
-  CartesianGrid,
-  Rectangle,
+  LabelList,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -22,10 +21,10 @@ import {
 } from "@/lib/dates";
 import { describeEntry } from "@/lib/format";
 import type { LogRow } from "@/lib/types";
-import { useChartColors, type ChartColors } from "./chartKit";
+import { TooltipCard, useChartColors, type ChartColors } from "./chartKit";
 
 type HifzType = "sabak" | "sabak_para" | "dor";
-/** Stack order, bottom → top: newest material at the base. */
+/** Newest material first: Sabak, then Sabak Para, then Dhor. */
 const TYPES: HifzType[] = ["sabak", "sabak_para", "dor"];
 const WEEKS = 8;
 
@@ -61,10 +60,10 @@ function ago(ymd: string, today: string): string {
 }
 
 /**
- * Sabak, Sabak Para and Dhor side by side: pages per calendar week, stacked
- * by type, plus what each one last covered. Replaces the old entry-count
- * donut, which lumped both revision types together and counted a full juz
- * of Dhor the same as a quarter page of Sabak.
+ * Sabak, Sabak Para and Dhor one under the other: pages per calendar week
+ * for each type, plus what each one last covered. Replaces the old
+ * entry-count donut, which lumped both revision types together and counted
+ * a full juz of Dhor the same as a quarter page of Sabak.
  */
 export function HifzBreakdownCard({
   rows,
@@ -116,127 +115,130 @@ export function HifzBreakdownCard({
     return { weeks, totals, latest, any };
   }, [rows, tz, today]);
 
-  // Only the top-most filled segment of each column gets the rounded end.
-  const topOf = (w: Week): HifzType | null =>
-    [...TYPES].reverse().find((t) => w[t] > 0) ?? null;
-
   return (
     <div className="rounded-2xl bg-surface p-4 shadow-e1">
       <p className="text-callout font-semibold">Sabak, Sabak Para & Dhor</p>
-      <p className="text-caption text-faint">Pages per week · last {WEEKS} weeks</p>
+      <p className="text-caption text-faint">
+        Pages per week, last {WEEKS} weeks · each on its own scale
+      </p>
 
-      {any ? (
-        <div className="mt-3 h-40">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={weeks} margin={{ top: 6, right: 4, bottom: 0, left: 0 }}>
-              <CartesianGrid vertical={false} stroke={colors.grid} />
-              <XAxis
-                dataKey="label"
-                tick={{ fill: colors.tick, fontSize: 10 }}
-                tickLine={false}
-                axisLine={false}
-                interval={1}
-              />
-              <YAxis
-                tick={{ fill: colors.tick, fontSize: 10 }}
-                tickLine={false}
-                axisLine={false}
-                width={28}
-                allowDecimals={false}
-              />
-              <Tooltip
-                cursor={{ fill: colors.surface2 }}
-                content={({ active, payload }) => {
-                  const w = payload?.[0]?.payload as Week | undefined;
-                  if (!active || !w) return null;
-                  const sum = r1(TYPES.reduce((s, t) => s + w[t], 0));
-                  return (
-                    <div className="rounded-xl border border-border bg-surface px-3 py-2 shadow-e2">
-                      <p className="text-subhead font-semibold tabular-nums">
-                        {sum} {sum === 1 ? "page" : "pages"}
-                      </p>
-                      {[...TYPES].reverse().map((t) =>
-                        w[t] > 0 ? (
-                          <p key={t} className="flex items-center gap-1.5 text-caption text-muted">
-                            <span
-                              className="h-0.5 w-2.5 rounded-full"
-                              style={{ background: CSS_VAR[t] }}
-                            />
-                            <span className="tabular-nums text-foreground">{w[t]}</span>
-                            {ENTRY_META[t].label}
-                          </p>
-                        ) : null,
-                      )}
-                      <p className="text-caption text-faint">{w.full}</p>
-                    </div>
-                  );
-                }}
-              />
-              {TYPES.map((t) => (
-                <Bar
-                  key={t}
-                  dataKey={t}
-                  stackId="hifz"
-                  fill={colorOf(colors, t)}
-                  // 2px surface-colored edge = the gap between stacked parts.
-                  stroke={colors.surface}
-                  strokeWidth={2}
-                  maxBarSize={24}
-                  isAnimationActive={false}
-                  shape={(props: unknown) => {
-                    const p = props as React.ComponentProps<typeof Rectangle> & {
-                      payload: Week;
-                    };
-                    return (
-                      <Rectangle
-                        {...p}
-                        radius={topOf(p.payload) === t ? [4, 4, 0, 0] : 0}
-                      />
-                    );
-                  }}
-                />
-              ))}
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      ) : (
+      {!any && (
         <p className="mt-3 text-footnote text-muted">
           No Sabak, Sabak Para or Dhor logged in the last {WEEKS} weeks.
         </p>
       )}
 
-      {/* Legend + summary: the numbers behind the colors, and what each
-          type last covered. */}
-      <div className="mt-3 space-y-2.5 border-t border-border pt-3">
-        {TYPES.map((t) => {
+      {/* Small multiples: a half page of sabak would vanish stacked under a
+          20-page dhor, so each type gets its own row and scale. */}
+      <div className="mt-3 divide-y divide-border">
+        {TYPES.map((t, i) => {
           const last = latest[t];
+          const isLast = i === TYPES.length - 1;
           return (
-            <div key={t} className="flex items-start gap-2.5">
-              <span
-                className="mt-1 size-2.5 shrink-0 rounded-[3px]"
-                style={{ background: CSS_VAR[t] }}
-              />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-baseline justify-between gap-2">
-                  <p className="text-subhead font-medium">
+            <div key={t} className="py-3 first:pt-0 last:pb-0">
+              <div className="flex items-baseline justify-between gap-2">
+                <p className="flex min-w-0 items-center gap-2 text-subhead font-medium">
+                  <span
+                    className="size-2.5 shrink-0 rounded-[3px]"
+                    style={{ background: CSS_VAR[t] }}
+                  />
+                  <span className="truncate">
                     {ENTRY_META[t].label}{" "}
                     <span className="font-normal text-faint">· {SHORT_DESC[t]}</span>
-                  </p>
-                  <p className="shrink-0 text-subhead font-semibold tabular-nums">
-                    {totals[t]}
-                    <span className="ml-1 font-normal text-faint">pages</span>
-                  </p>
-                </div>
-                <p className="truncate text-footnote text-muted">
-                  {last
-                    ? `Last: ${describeEntry(last)} · ${ago(localDate(last.logged_at, tz), today)}`
-                    : "Not logged yet"}
+                  </span>
+                </p>
+                <p className="shrink-0 text-subhead font-semibold tabular-nums">
+                  {totals[t]}
+                  <span className="ml-1 font-normal text-faint">
+                    {totals[t] === 1 ? "page" : "pages"}
+                  </span>
                 </p>
               </div>
+              <p className="mt-0.5 truncate pl-[1.125rem] text-footnote text-muted">
+                {last
+                  ? `Last: ${describeEntry(last)} · ${ago(localDate(last.logged_at, tz), today)}`
+                  : "Not logged yet"}
+              </p>
+              {any && (
+                <TypeBars
+                  weeks={weeks}
+                  type={t}
+                  color={colorOf(colors, t)}
+                  colors={colors}
+                  showAxis={isLast}
+                />
+              )}
             </div>
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/** One type's weekly pages. Only the tallest week is labelled; the tooltip
+ *  and the total beside the title carry the rest. */
+function TypeBars({
+  weeks,
+  type,
+  color,
+  colors,
+  showAxis,
+}: {
+  weeks: Week[];
+  type: HifzType;
+  color: string;
+  colors: ChartColors;
+  showAxis: boolean;
+}) {
+  const max = Math.max(...weeks.map((w) => w[type]));
+  return (
+    <div className={showAxis ? "mt-1.5 h-[4.5rem]" : "mt-1.5 h-12"}>
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={weeks} margin={{ top: 14, right: 2, bottom: 0, left: 2 }}>
+          <XAxis
+            dataKey="label"
+            hide={!showAxis}
+            tick={{ fill: colors.tick, fontSize: 10 }}
+            tickLine={false}
+            axisLine={{ stroke: colors.grid }}
+            interval={1}
+          />
+          <YAxis hide domain={[0, Math.max(max, 0.5)]} />
+          <Tooltip
+            cursor={{ fill: colors.surface2 }}
+            content={({ active, payload }) => {
+              const w = payload?.[0]?.payload as Week | undefined;
+              return (
+                <TooltipCard
+                  active={active && !!w}
+                  value={w ? w[type] : undefined}
+                  suffix={w && w[type] === 1 ? "page" : "pages"}
+                  detail={ENTRY_META[type].label}
+                  label={w?.full}
+                />
+              );
+            }}
+          />
+          <Bar
+            dataKey={type}
+            fill={color}
+            radius={[4, 4, 0, 0]}
+            maxBarSize={20}
+            isAnimationActive={false}
+          >
+            <LabelList
+              dataKey={type}
+              position="top"
+              offset={4}
+              fontSize={10}
+              fill={colors.tick}
+              // Only the tallest week gets a number (ties all do).
+              formatter={(v: unknown) => (max > 0 && Number(v) === max ? String(v) : "")}
+            />
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
     </div>
   );
 }

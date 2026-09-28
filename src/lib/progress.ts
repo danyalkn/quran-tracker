@@ -13,7 +13,7 @@
 
 import { localDate, monthKey, MONTH_SHORT } from "@/lib/dates";
 import { pageFromRef, totalPages, DEFAULT_MUSHAF, type MushafId } from "@/lib/mushaf";
-import { juzLength, rowJuzPage, type PositionedRow } from "@/lib/position";
+import { juzLength, rowJuzPage, toQuarter, type PositionedRow } from "@/lib/position";
 import type { EntryType } from "@/lib/entries";
 
 /** A local date as a timezone-free timestamp (UTC midnight), so server and
@@ -85,8 +85,9 @@ export type SabakPoint = { date: string; t: number; total: number };
 export type JuzCoverage = {
   juz: number;
   length: number;
-  /** Half-page slots covered by positioned sabak (1 = first half of p.1). */
-  halves: Set<number>;
+  /** Quarter-page slots covered by positioned sabak (1 = first quarter of
+   *  p.1, 1.75 = its last quarter). */
+  quarters: Set<number>;
   /** Pages of sabak logged in this juz without a position. */
   unplaced: number;
   /** Pages covered, capped at the juz length. */
@@ -105,7 +106,9 @@ export type HifzProgress = {
 const pagesOf = (r: ProgressRow): number =>
   r.unit === "page" && r.amount != null ? +r.amount : r.pages_equiv ? +r.pages_equiv : 0;
 
-/** New-memorization history from sabak entries. */
+/** New-memorization history from sabak entries. Juz lengths always come
+ *  from the user's mushaf: positions are juz-relative, and older hifz rows
+ *  only carry the column's default mushaf. */
 export function hifzProgress(
   rows: ProgressRow[],
   tz: string,
@@ -126,10 +129,10 @@ export function hifzProgress(
     else trail.push({ date, t: dayStamp(date), total: +total.toFixed(2) });
 
     const juz = r.juz!;
-    const length = juzLength(r.mushaf ?? mushaf, juz);
     let c = coverage.get(juz);
     if (!c) {
-      c = { juz, length, halves: new Set(), unplaced: 0, covered: 0, lastDate: date };
+      const length = juzLength(mushaf, juz);
+      c = { juz, length, quarters: new Set(), unplaced: 0, covered: 0, lastDate: date };
       coverage.set(juz, c);
     }
     c.lastDate = date;
@@ -137,14 +140,15 @@ export function hifzProgress(
     if (start == null) {
       c.unplaced += pages;
     } else {
-      // Mark every half page the portion touches (a ¼ page still marks the
-      // half it sits in).
-      const end = start + Math.max(pages, 0.25);
-      for (let h = start; h < end - 1e-9 && h <= length + 0.5; h += 0.5) c.halves.add(h);
+      // Mark every quarter page the portion covers, inside this juz.
+      const end = toQuarter(start + Math.max(pages, 0.25));
+      for (let q = toQuarter(start); q < end - 1e-9 && q < c.length + 1; q = toQuarter(q + 0.25)) {
+        c.quarters.add(q);
+      }
     }
   }
   for (const c of coverage.values()) {
-    c.covered = Math.min(c.length, c.halves.size / 2 + c.unplaced);
+    c.covered = Math.min(c.length, c.quarters.size / 4 + c.unplaced);
   }
   return { trail, totalPages: +total.toFixed(2), latest: sabak[sabak.length - 1], coverage };
 }

@@ -12,6 +12,33 @@ import type {
   ReadingRow,
 } from "@/lib/types";
 
+/**
+ * Fetch every row of a query, a page at a time. PostgREST silently caps each
+ * response at the project's "Max rows" setting (1000 by default), so a plain
+ * `.limit(5000)` quietly returns only the newest 1000. Pages are requested by
+ * offset with an exact count, so this works whatever the cap is. `max` is a
+ * safety valve. The query must have a total order (add a tiebreak column).
+ */
+async function fetchAll<T>(
+  page: (
+    from: number,
+    to: number,
+  ) => PromiseLike<{ data: unknown[] | null; count: number | null }>,
+  max: number,
+): Promise<T[]> {
+  const out: T[] = [];
+  let total = Number.POSITIVE_INFINITY;
+  while (out.length < Math.min(total, max)) {
+    const from = out.length;
+    const { data, count } = await page(from, Math.min(from + 999, max - 1));
+    if (count != null) total = count;
+    const rows = (data as T[] | null) ?? [];
+    if (rows.length === 0) break;
+    out.push(...rows);
+  }
+  return out;
+}
+
 /** All reactions on the group's recent messages (small group - fetch all). */
 export async function getGroupReactions(
   groupId: string,
@@ -43,17 +70,21 @@ export async function getGroupPagesAllTime(
   groupId: string,
 ): Promise<ReadingRow[]> {
   const supabase = await createClient();
-  const { data } = await supabase
-    .from("log_entries")
-    .select("user_id, logged_at, pages_equiv")
-    .eq("group_id", groupId)
-    // Newest first: the cap is a safety valve, and if it ever bites it must
-    // shave the oldest rows (a slight all-time undercount) rather than the
-    // newest - the month-scoped stats and leaderboard read from these rows and
-    // would otherwise silently read zero.
-    .order("logged_at", { ascending: false })
-    .limit(10000);
-  return (data as ReadingRow[] | null) ?? [];
+  // Newest first: the cap is a safety valve, and if it ever bites it must
+  // shave the oldest rows (a slight all-time undercount) rather than the
+  // newest - the month-scoped stats and leaderboard read from these rows and
+  // would otherwise silently read zero.
+  return fetchAll<ReadingRow>(
+    (from, to) =>
+      supabase
+        .from("log_entries")
+        .select("user_id, logged_at, pages_equiv", { count: "exact" })
+        .eq("group_id", groupId)
+        .order("logged_at", { ascending: false })
+        .order("id", { ascending: true })
+        .range(from, to),
+    10000,
+  );
 }
 
 /** The current user's first group membership (the app assumes one circle). */
@@ -106,14 +137,18 @@ export async function getMyEntriesAllTime(
   limit = 5000,
 ): Promise<LogRow[]> {
   const supabase = await createClient();
-  const { data } = await supabase
-    .from("log_entries")
-    .select("*")
-    .eq("group_id", groupId)
-    .eq("user_id", userId)
-    .order("logged_at", { ascending: false })
-    .limit(limit);
-  return (data as LogRow[] | null) ?? [];
+  return fetchAll<LogRow>(
+    (from, to) =>
+      supabase
+        .from("log_entries")
+        .select("*", { count: "exact" })
+        .eq("group_id", groupId)
+        .eq("user_id", userId)
+        .order("logged_at", { ascending: false })
+        .order("id", { ascending: true })
+        .range(from, to),
+    limit,
+  );
 }
 
 /** Everyone in the group, with their profile name/avatar (for chat + feed).

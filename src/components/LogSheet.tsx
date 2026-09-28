@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { X, Plus } from "lucide-react";
 import {
   ENTRY_META,
@@ -24,8 +24,10 @@ import {
 import {
   absolutePage,
   juzLength,
+  juzPageFromLabel,
   juzPageLabel,
   juzPageOptions,
+  needsQuarters,
   nextSabakStart,
   pagesPhrase,
   positionLabel,
@@ -65,11 +67,11 @@ function portionFromUnit(unit: Unit | null): Portion {
   return "Pages";
 }
 
-// The "Starts at" wheel: "–" = not specified, then half-page steps.
+// The "Starts at" wheel: "–" = not specified, then half-page steps (quarter
+// steps whenever the amount or the start needs them).
 const NO_START = "–";
 function startFromLabel(label: string): number | null {
-  if (label === NO_START) return null;
-  return label.endsWith("½") ? Number(label.slice(0, -1)) + 0.5 : Number(label);
+  return label === NO_START ? null : juzPageFromLabel(label);
 }
 
 /** "Juz 3 · p.3, 2nd half" (+ the amount when the label doesn't say it). */
@@ -108,8 +110,13 @@ export function LogSheet({
   /** Profile timezone - backdating must land on the right local day. */
   tz: string;
 }) {
-  // An entry being edited keeps its own mushaf; otherwise use the user's.
-  const mush: MushafId = editing?.mushaf ?? mushaf;
+  // A reading being edited keeps its own mushaf (its bookmark page is in
+  // it). Hifz positions are juz-relative, so they always use the user's
+  // mushaf; older hifz rows only carry the column's default.
+  const mush: MushafId =
+    editing && isReadingType(editing.entry_type)
+      ? (editing.mushaf ?? mushaf)
+      : mushaf;
   const maxPage = totalPages(mush);
   const reading = isReadingType(initialType);
   const sabak = initialType === "sabak";
@@ -133,6 +140,15 @@ export function LogSheet({
   const [showNotes, setShowNotes] = useState(false);
   const [when, setWhen] = useState<"today" | "yesterday">("today");
   const [error, setError] = useState<string | null>(null);
+
+  // The defaults below read the newest entry of this type, but only when the
+  // sheet opens: a save confirming in the background swaps that row for the
+  // server's copy, and re-running the reset then would wipe what's being
+  // typed. The ref keeps the latest value without re-triggering the reset.
+  const lastRef = useRef(lastOfType);
+  useEffect(() => {
+    lastRef.current = lastOfType;
+  }, [lastOfType]);
 
   useEffect(() => {
     if (!open) return;
@@ -167,7 +183,7 @@ export function LogSheet({
 
     // Fresh entry defaults: carry on from the last entry of this type, so
     // tomorrow's sabak is usually one tap.
-    const last = lastOfType ?? null;
+    const last = lastRef.current ?? null;
     setPagesRead("");
     setStoppedAt("");
     if (initialType === "sabak") {
@@ -195,7 +211,7 @@ export function LogSheet({
       setPages(1);
       setStart(null);
     }
-  }, [open, initialType, editing, lastOfType, mush]);
+  }, [open, initialType, editing, mush]);
 
   const backdating = when === "yesterday" && !editing;
 
@@ -204,14 +220,16 @@ export function LogSheet({
 
   // "Starts at" wheel for the chosen juz (its length depends on the juz and
   // the mushaf: Uthmani juz 1 has 21 pages, juz 30 has 23).
+  const step =
+    needsQuarters(start, sabak || portion === "Pages" ? pages : null) ? 0.25 : 0.5;
   const startOptions = useMemo(
-    () => [NO_START, ...juzPageOptions(mush, juz).map(juzPageLabel)],
-    [mush, juz],
+    () => [NO_START, ...juzPageOptions(mush, juz, step).map(juzPageLabel)],
+    [mush, juz, step],
   );
   const startValue = start == null ? NO_START : juzPageLabel(start);
   const onJuzChange = (j: number) => {
     setJuz(j);
-    const max = juzLength(mush, j) + 0.5;
+    const max = juzLength(mush, j) + 1 - step;
     setStart((s) => (s == null ? s : Math.min(s, max)));
   };
   // The printed page number, for a quick check against the mushaf in hand.
