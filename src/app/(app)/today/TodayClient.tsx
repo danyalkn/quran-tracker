@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Inbox, UserPlus, Bookmark } from "lucide-react";
+import { Inbox, UserPlus, Bookmark, NotebookPen } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { deleteEntry, isMissingMushaf, updateEntry } from "@/lib/entryWrites";
 import {
@@ -329,9 +329,19 @@ export function TodayClient({
               <p className="mt-0.5 text-footnote text-muted">{hijriLabel}</p>
             )}
           </div>
-          <Link href="/settings" aria-label="Settings">
-            <Avatar name={displayName} src={avatarUrl} />
-          </Link>
+          <div className="flex items-center gap-2.5">
+            {/* Every entry and note, all time - Today only shows today's. */}
+            <Link
+              href="/journal"
+              aria-label="Journal"
+              className="grid size-10 place-items-center rounded-full bg-surface-2 text-muted transition-colors hover:text-foreground"
+            >
+              <NotebookPen className="size-5" />
+            </Link>
+            <Link href="/settings" aria-label="Settings">
+              <Avatar name={displayName} src={avatarUrl} />
+            </Link>
+          </div>
         </div>
       </header>
 

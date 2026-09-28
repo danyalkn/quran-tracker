@@ -97,6 +97,25 @@ export async function getMyRecentEntries(
   return (data as LogRow[] | null) ?? [];
 }
 
+/** Every entry the signed-in user has ever logged in the group, newest
+ *  first (Journal + personal progress). One person's history is small; the
+ *  cap is only a safety valve. */
+export async function getMyEntriesAllTime(
+  groupId: string,
+  userId: string,
+  limit = 5000,
+): Promise<LogRow[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("log_entries")
+    .select("*")
+    .eq("group_id", groupId)
+    .eq("user_id", userId)
+    .order("logged_at", { ascending: false })
+    .limit(limit);
+  return (data as LogRow[] | null) ?? [];
+}
+
 /** Everyone in the group, with their profile name/avatar (for chat + feed).
  *  Two queries on purpose: there is no direct FK group_members.user_id →
  *  profiles.id (both reference auth.users), so a PostgREST embed can't resolve
