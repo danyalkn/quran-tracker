@@ -141,15 +141,22 @@ export function hijriDate(ts: string | number | Date, tz: string): string {
   }
 }
 
-/** Short label like "Mon · 6 Jun" for a local date string. */
+/* Fixed English names for the short labels below. Intl's en-GB output
+ * differs between engines (Node prints "Mon 31 Aug" and "Sept", browsers
+ * "Mon, 31 Aug"), and those labels are rendered on the server AND the client,
+ * so any difference is a hydration mismatch. Spelling them out keeps both
+ * sides identical. */
+const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+export const MONTH_SHORT = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+/** Short label like "Mon, 6 Jun" for a local date string. */
 export function dayLabel(ymd: string): string {
   // Parse as a local-noon date to avoid TZ drift on the label itself.
   const d = new Date(`${ymd}T12:00:00`);
-  return d.toLocaleDateString("en-GB", {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-  });
+  return `${WEEKDAY_SHORT[d.getDay()]}, ${d.getDate()} ${MONTH_SHORT[d.getMonth()]}`;
 }
 
 /** Time label like "6:12 AM" for an instant in the given timezone. */
@@ -331,20 +338,16 @@ export function weekRangeLabel(startYmd: string, endYmd: string): string {
   const a = new Date(`${startYmd}T12:00:00`);
   const b = new Date(`${endYmd}T12:00:00`);
   const sameMonth = a.getMonth() === b.getMonth();
-  const left = a.toLocaleDateString("en-GB", {
-    day: "numeric",
-    ...(sameMonth ? {} : { month: "short" }),
-  });
-  const right = b.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-  return `${left}–${right}`;
+  const left = sameMonth
+    ? String(a.getDate())
+    : `${a.getDate()} ${MONTH_SHORT[a.getMonth()]}`;
+  return `${left}–${b.getDate()} ${MONTH_SHORT[b.getMonth()]}`;
 }
 
 /** "6 Jun" short date for a local date string. */
 export function shortDate(ymd: string): string {
-  return new Date(`${ymd}T12:00:00`).toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-  });
+  const d = new Date(`${ymd}T12:00:00`);
+  return `${d.getDate()} ${MONTH_SHORT[d.getMonth()]}`;
 }
 
 /** Single-letter weekday for a local date string (M/T/W…). */
