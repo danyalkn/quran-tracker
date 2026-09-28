@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { X, Plus } from "lucide-react";
 import {
   ENTRY_META,
@@ -21,6 +21,18 @@ import {
   DEFAULT_MUSHAF,
   type MushafId,
 } from "@/lib/mushaf";
+import {
+  absolutePage,
+  juzLength,
+  juzPageLabel,
+  juzPageOptions,
+  nextSabakStart,
+  pagesPhrase,
+  positionLabel,
+  positionSaysAmount,
+  rowJuzPage,
+  serializeJuzPage,
+} from "@/lib/position";
 import { yesterdayLocal, zonedIso } from "@/lib/dates";
 import { cn } from "@/lib/cn";
 
@@ -53,7 +65,21 @@ function portionFromUnit(unit: Unit | null): Portion {
   return "Pages";
 }
 
-const plural = (n: number, w: string) => `${n} ${n === 1 ? w : w + "s"}`;
+// The "Starts at" wheel: "–" = not specified, then half-page steps.
+const NO_START = "–";
+function startFromLabel(label: string): number | null {
+  if (label === NO_START) return null;
+  return label.endsWith("½") ? Number(label.slice(0, -1)) + 0.5 : Number(label);
+}
+
+/** "Juz 3 · p.3, 2nd half" (+ the amount when the label doesn't say it). */
+function portionSummary(juz: number, start: number | null, pages: number): string {
+  if (start == null) return `Juz ${juz} · ${pagesPhrase(pages)}`;
+  const where = positionLabel(start, pages);
+  return positionSaysAmount(start, pages)
+    ? `Juz ${juz} · ${where}`
+    : `Juz ${juz} · ${where} · ${pagesPhrase(pages)}`;
+}
 
 export function LogSheet({
   open,
@@ -62,6 +88,7 @@ export function LogSheet({
   onSave,
   editing,
   lastReadPage,
+  lastOfType,
   mushaf = DEFAULT_MUSHAF,
   tz,
 }: {
@@ -73,6 +100,9 @@ export function LogSheet({
   editing?: LogRow | null;
   /** Most recent last-page read, used to auto-advance the bookmark. */
   lastReadPage?: number | null;
+  /** The newest entry of this type: a fresh hifz entry carries on from it
+   *  (sabak continues right after it; revisions reuse its juz/portion). */
+  lastOfType?: LogRow | null;
   /** The reader's mushaf - drives the page→juz/surah map and page range. */
   mushaf?: MushafId;
   /** Profile timezone - backdating must land on the right local day. */
@@ -91,6 +121,8 @@ export function LogSheet({
   const [portion, setPortion] = useState<Portion>(defaultPortion(initialType));
   const [part, setPart] = useState(1);
   const [pages, setPages] = useState(1); // sabak + revision "Pages"
+  // Where in the juz the portion starts (juz-relative page, half steps).
+  const [start, setStart] = useState<number | null>(null);
   // reading
   const [pagesRead, setPagesRead] = useState("");
   const [stoppedAt, setStoppedAt] = useState("");
@@ -122,28 +154,71 @@ export function LogSheet({
       } else if (editing.entry_type === "sabak") {
         setJuz(editing.juz ?? 1);
         setPages(editing.amount ?? 1);
+        setStart(rowJuzPage(editing));
       } else {
         setJuz(editing.juz ?? 1);
         setPortion(portionFromUnit(editing.unit));
         setPart(editing.part ?? 1);
         setPages(editing.amount ?? 1);
+        setStart(rowJuzPage(editing));
       }
       return;
     }
 
-    // Fresh entry defaults.
-    setJuz(1);
-    setPortion(defaultPortion(initialType));
-    setPart(1);
-    setPages(1);
+    // Fresh entry defaults: carry on from the last entry of this type, so
+    // tomorrow's sabak is usually one tap.
+    const last = lastOfType ?? null;
     setPagesRead("");
     setStoppedAt("");
-  }, [open, initialType, editing]);
+    if (initialType === "sabak") {
+      const next = nextSabakStart(last, mush);
+      setJuz(next?.juz ?? last?.juz ?? 1);
+      setStart(next?.start ?? null);
+      const amt = last?.amount != null ? +last.amount : 1;
+      setPages(SABAK_PAGES.includes(amt) ? amt : 1);
+      setPortion(defaultPortion(initialType));
+      setPart(1);
+    } else if (!isReadingType(initialType) && last) {
+      const p = portionFromUnit(last.unit);
+      setJuz(last.juz ?? 1);
+      setPortion(p);
+      // Quarters and halves usually rotate: suggest the next one.
+      const max = p === "Half" ? 2 : p === "Quarter" ? 4 : 1;
+      setPart(last.part ? (last.part % max) + 1 : 1);
+      const amt = last.amount != null ? +last.amount : 1;
+      setPages(p === "Pages" && REV_PAGES.includes(amt) ? amt : 1);
+      setStart(rowJuzPage(last));
+    } else {
+      setJuz(1);
+      setPortion(defaultPortion(initialType));
+      setPart(1);
+      setPages(1);
+      setStart(null);
+    }
+  }, [open, initialType, editing, lastOfType, mush]);
 
   const backdating = when === "yesterday" && !editing;
 
   const partOptions =
     portion === "Half" ? [1, 2] : portion === "Quarter" ? [1, 2, 3, 4] : [];
+
+  // "Starts at" wheel for the chosen juz (its length depends on the juz and
+  // the mushaf: Uthmani juz 1 has 21 pages, juz 30 has 23).
+  const startOptions = useMemo(
+    () => [NO_START, ...juzPageOptions(mush, juz).map(juzPageLabel)],
+    [mush, juz],
+  );
+  const startValue = start == null ? NO_START : juzPageLabel(start);
+  const onJuzChange = (j: number) => {
+    setJuz(j);
+    const max = juzLength(mush, j) + 0.5;
+    setStart((s) => (s == null ? s : Math.min(s, max)));
+  };
+  // The printed page number, for a quick check against the mushaf in hand.
+  const mushafPage =
+    start != null && mush === "uthmani15"
+      ? ` · mushaf p.${absolutePage(mush, juz, start)}`
+      : "";
 
   // Reading: resolve the entered last-page into its mushaf location, live.
   const stoppedNum = Number(stoppedAt);
@@ -176,12 +251,14 @@ export function LogSheet({
   const summary = reading
     ? null
     : sabak
-      ? `Memorizing Juz ${juz} · ${plural(pages, "page")}`
+      ? `Memorizing ${portionSummary(juz, start, pages)}${mushafPage}`
       : portion === "Full"
         ? `Revising Juz ${juz} (full juz)`
         : portion === "Pages"
-          ? `Revising Juz ${juz} · ${plural(pages, "page")}`
+          ? `Revising ${portionSummary(juz, start, pages)}${mushafPage}`
           : `Revising Juz ${juz} · ${portion} ${part}`;
+  const showStartHint =
+    !reading && start == null && (sabak || portion === "Pages");
 
   const save = () => {
     // Backdate to 8pm yesterday *in the profile's timezone* - every consumer
@@ -215,13 +292,14 @@ export function LogSheet({
     } else if (sabak) {
       onSave({
         entry_type: initialType,
-        from_ref: null,
+        // Juz-relative start page ("3.5"), see src/lib/position.ts.
+        from_ref: start != null ? serializeJuzPage(start) : null,
         to_ref: null,
         amount: pages,
         unit: "page",
         juz,
         part: null,
-        mushaf: null,
+        mushaf: mush,
         notes: notes.trim() || null,
         logged_at: loggedAt,
       });
@@ -230,13 +308,13 @@ export function LogSheet({
       const isPages = portion === "Pages";
       onSave({
         entry_type: initialType,
-        from_ref: null,
+        from_ref: isPages && start != null ? serializeJuzPage(start) : null,
         to_ref: null,
         amount: isPages ? pages : 1,
         unit: isPages ? "page" : PORTION_UNIT[portion],
         juz,
         part: portion === "Half" || portion === "Quarter" ? part : null,
-        mushaf: null,
+        mushaf: mush,
         notes: notes.trim() || null,
         logged_at: loggedAt,
       });
@@ -375,11 +453,20 @@ export function LogSheet({
             <div className="rounded-2xl bg-surface p-1.5 shadow-e1">
               <div className="mb-0.5 flex text-center text-caption font-medium uppercase tracking-wider text-faint">
                 <div className="flex-1">Juz</div>
+                <div className="flex-1">Starts at</div>
                 <div className="flex-1">Pages</div>
               </div>
               <div className="flex">
                 <div className="flex-1">
-                  <WheelPicker options={JUZ} value={juz} onChange={setJuz} ariaLabel="Juz" />
+                  <WheelPicker options={JUZ} value={juz} onChange={onJuzChange} ariaLabel="Juz" />
+                </div>
+                <div className="flex-1">
+                  <WheelPicker
+                    options={startOptions}
+                    value={startValue}
+                    onChange={(l) => setStart(startFromLabel(l))}
+                    ariaLabel="Starts at page of the juz"
+                  />
                 </div>
                 <div className="flex-1">
                   <WheelPicker
@@ -392,6 +479,7 @@ export function LogSheet({
               </div>
             </div>
             <p className="mt-2 px-1 text-footnote text-accent">{summary}</p>
+            {showStartHint && <StartHint />}
           </>
         ) : (
           <>
@@ -400,13 +488,14 @@ export function LogSheet({
               <div className="mb-0.5 flex text-center text-caption font-medium uppercase tracking-wider text-faint">
                 <div className="flex-1">Juz</div>
                 <div className="flex-1">Portion</div>
+                {portion === "Pages" && <div className="flex-1">Starts at</div>}
                 <div className="flex-1">
                   {portion === "Pages" ? "Pages" : "Part"}
                 </div>
               </div>
               <div className="flex">
                 <div className="flex-1">
-                  <WheelPicker options={JUZ} value={juz} onChange={setJuz} ariaLabel="Juz" />
+                  <WheelPicker options={JUZ} value={juz} onChange={onJuzChange} ariaLabel="Juz" />
                 </div>
                 <div className="flex-1">
                   <WheelPicker
@@ -419,6 +508,16 @@ export function LogSheet({
                     ariaLabel="Portion"
                   />
                 </div>
+                {portion === "Pages" && (
+                  <div className="flex-1">
+                    <WheelPicker
+                      options={startOptions}
+                      value={startValue}
+                      onChange={(l) => setStart(startFromLabel(l))}
+                      ariaLabel="Starts at page of the juz"
+                    />
+                  </div>
+                )}
                 <div className="flex-1">
                   {portion === "Full" ? (
                     <div className="grid h-[200px] place-items-center text-callout text-faint">
@@ -443,6 +542,7 @@ export function LogSheet({
               </div>
             </div>
             <p className="mt-2 px-1 text-footnote text-accent">{summary}</p>
+            {showStartHint && <StartHint />}
           </>
         )}
 
@@ -504,5 +604,15 @@ export function LogSheet({
         </Button>
       </div>
     </Sheet>
+  );
+}
+
+/** Nudge toward giving a position, without making it mandatory. */
+function StartHint() {
+  return (
+    <p className="mt-1 px-1 text-footnote text-faint">
+      Set “Starts at” to keep your place in the juz. 3½ means the second half of
+      page 3.
+    </p>
   );
 }

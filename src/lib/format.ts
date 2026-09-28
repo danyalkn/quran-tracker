@@ -1,5 +1,11 @@
 import { ENTRY_META, UNIT_META, isReadingType } from "@/lib/entries";
 import { bookmarkLabel, pageFromRef, DEFAULT_MUSHAF } from "@/lib/mushaf";
+import {
+  pagesPhrase,
+  positionLabel,
+  positionSaysAmount,
+  rowJuzPage,
+} from "@/lib/position";
 import type { LogRow } from "@/lib/types";
 
 /** Primary label for an entry (what was covered). */
@@ -11,9 +17,11 @@ export function describeEntry(e: LogRow): string {
     if (page != null) return bookmarkLabel(e.mushaf ?? DEFAULT_MUSHAF, page);
     return ENTRY_META[e.entry_type].label;
   }
-  // Structured hifz entry (juz + portion).
+  // Structured hifz entry (juz + portion, plus where in the juz when known).
   if (e.juz != null) {
     const base = `Juz ${e.juz}`;
+    const start = rowJuzPage(e);
+    if (start != null) return `${base} · ${positionLabel(start, e.amount)}`;
     if (e.unit === "hizb" && e.part) return `${base} · Half ${e.part}`;
     if (e.unit === "quarter" && e.part) return `${base} · Q${e.part}`;
     return base; // full juz
@@ -39,8 +47,9 @@ export function quantityLabel(e: LogRow): string | null {
   // "Pages" revision). Full/Half/Quarter already read in describeEntry.
   if (e.juz != null) {
     if (e.unit === "page" && e.amount != null) {
-      const n = +e.amount;
-      return `${n} ${n === 1 ? "page" : "pages"}`;
+      const start = rowJuzPage(e);
+      if (start != null && positionSaysAmount(start, +e.amount)) return null;
+      return pagesPhrase(+e.amount);
     }
     return null;
   }

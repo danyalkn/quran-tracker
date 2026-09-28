@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Inbox, UserPlus, Bookmark } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { deleteEntry, isMissingMushaf, updateEntry } from "@/lib/entryWrites";
 import {
   bucketOf,
   isReadingType,
@@ -62,13 +63,6 @@ function markDeepLinkConsumed(key: string | null): void {
   } catch {
     // Private mode or storage blocked: the URL strip still covers reloads.
   }
-}
-
-/** True when a write failed only because the mushaf column isn't in the schema
- *  yet (migration not applied). Logging then retries without it, so a pending
- *  migration can never block logging. */
-function isMissingMushaf(err: { message?: string } | null): boolean {
-  return !!err && /mushaf/i.test(err.message ?? "");
 }
 
 export function TodayClient({
@@ -170,6 +164,16 @@ export function TodayClient({
     }
     return best;
   }, [entries]);
+  // The newest entry of the type being logged: a fresh hifz entry carries on
+  // from it (sabak continues right after the last one).
+  const lastOfType = useMemo(() => {
+    let best: LogRow | null = null;
+    for (const x of entries) {
+      if (x.entry_type !== sheetType) continue;
+      if (!best || new Date(x.logged_at) > new Date(best.logged_at)) best = x;
+    }
+    return best;
+  }, [entries, sheetType]);
   const lastMushaf = lastReading?.mushaf ?? DEFAULT_MUSHAF;
   const lastPage = lastReading ? pageFromRef(lastReading.to_ref) : null;
   const finished = lastPage != null && lastPage >= totalPages(lastMushaf);
@@ -217,39 +221,13 @@ export function TodayClient({
           : e,
       ),
     );
-    const base: Record<string, unknown> = {
-      entry_type: payload.entry_type,
-      from_ref: payload.from_ref,
-      to_ref: payload.to_ref,
-      amount: payload.amount,
-      unit: payload.unit,
-      juz: payload.juz,
-      part: payload.part,
-      notes: payload.notes,
-    };
-    const supabase = createClient();
-    let res = await supabase
-      .from("log_entries")
-      .update(payload.mushaf != null ? { ...base, mushaf: payload.mushaf } : base)
-      .eq("id", id)
-      .select("*")
-      .single();
-    // Retry without mushaf if that column isn't in the schema yet.
-    if (isMissingMushaf(res.error) && payload.mushaf != null) {
-      res = await supabase
-        .from("log_entries")
-        .update(base)
-        .eq("id", id)
-        .select("*")
-        .single();
-    }
-    const { data, error } = res;
-    if (error || !data) {
+    const { row, error } = await updateEntry(id, payload);
+    if (error || !row) {
       setEntries(prev);
-      setError(error?.message ?? "Couldn’t save your changes. Try again.");
+      setError(error ?? "Couldn’t save your changes. Try again.");
       return;
     }
-    setEntries((p) => p.map((e) => (e.id === id ? (data as LogRow) : e)));
+    setEntries((p) => p.map((e) => (e.id === id ? row : e)));
   };
 
   const handleSave = async (payload: NewEntry) => {
@@ -318,11 +296,10 @@ export function TodayClient({
   const handleDelete = async (id: string) => {
     const prev = entries;
     setEntries((p) => p.filter((e) => e.id !== id));
-    const supabase = createClient();
-    const { error } = await supabase.from("log_entries").delete().eq("id", id);
+    const error = await deleteEntry(id);
     if (error) {
       setEntries(prev);
-      setError("Couldn’t delete that entry.");
+      setError(error);
     }
   };
 
@@ -488,6 +465,7 @@ export function TodayClient({
         onSave={handleSave}
         editing={editingEntry}
         lastReadPage={lastPage}
+        lastOfType={editingEntry ? null : lastOfType}
         mushaf={mushaf}
         tz={tz}
       />
