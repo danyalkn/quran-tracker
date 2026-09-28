@@ -1,13 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   ResponsiveContainer,
   BarChart,
   Bar,
-  PieChart,
-  Pie,
-  Cell,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -27,21 +25,21 @@ import {
   Clock3,
   Flame,
   Lightbulb,
-  UtensilsCrossed,
   ChevronLeft,
   ChevronRight,
   Info,
+  NotebookPen,
   type LucideIcon,
 } from "lucide-react";
 import { type Mode } from "@/lib/entries";
-import { totalPages, pageFromRef, surahForPage } from "@/lib/mushaf";
+import { pageFromRef, surahForPage, type MushafId } from "@/lib/mushaf";
+import { KHATMAH_PAGES } from "@/lib/khatmah";
 import type { GroupMember, LogRow, ReadingRow } from "@/lib/types";
 import {
   localDate,
   todayLocal,
   currentStreak,
   longestStreak,
-  lastNDaysEndingOn,
   shortDate,
   dayLabel,
   weekDates,
@@ -64,71 +62,13 @@ import {
 import { Avatar } from "@/components/ui/Avatar";
 import { Sheet } from "@/components/ui/Sheet";
 import { Button } from "@/components/ui/Button";
+import { TooltipCard, useChartColors } from "./chartKit";
+import { KhatmahCard } from "./KhatmahCard";
+import { ProgressCard } from "./ProgressCard";
+import { HifzBreakdownCard } from "./HifzBreakdownCard";
 
 type Scope = "mine" | "group";
-type Filter = "all" | "sabak" | "revision";
-
-// The group khatmah is measured against the standard Uthmani mushaf.
-const KHATMAH_PAGES = totalPages("uthmani15"); // 604
-
-/** Recharts paints via SVG attributes, which don't resolve CSS variables - so
- *  read the resolved token values and re-read when the color scheme flips. */
-function useChartColors() {
-  const [c, setC] = useState({
-    accent: "#1b6b53",
-    grid: "#e7e2d8",
-    tick: "#9a958c",
-    surface2: "#f3f0e9",
-  });
-  useEffect(() => {
-    const read = () => {
-      const s = getComputedStyle(document.documentElement);
-      const g = (n: string, f: string) => s.getPropertyValue(n).trim() || f;
-      setC({
-        accent: g("--accent", "#1b6b53"),
-        grid: g("--border", "#e7e2d8"),
-        tick: g("--faint", "#9a958c"),
-        surface2: g("--surface-2", "#f3f0e9"),
-      });
-    };
-    read();
-    const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    mq.addEventListener("change", read);
-    const obs = new MutationObserver(read);
-    obs.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["data-theme"],
-    });
-    return () => {
-      mq.removeEventListener("change", read);
-      obs.disconnect();
-    };
-  }, []);
-  return c;
-}
-
-function TooltipCard({
-  active,
-  label,
-  value,
-  suffix,
-}: {
-  active?: boolean;
-  label?: string;
-  value?: number | string;
-  suffix?: string;
-}) {
-  if (!active) return null;
-  return (
-    <div className="rounded-xl border border-border bg-surface px-3 py-2 shadow-e2">
-      <p className="text-caption text-faint">{label}</p>
-      <p className="text-subhead font-semibold tabular-nums">
-        {value}
-        {suffix ? ` ${suffix}` : ""}
-      </p>
-    </div>
-  );
-}
+type Filter = "all" | "sabak" | "sabak_para" | "dor";
 
 // Monday-first, matching the Mon–Sun heatmap rows.
 const WEEKDAYS = ["M", "T", "W", "T", "F", "S", "S"];
@@ -170,6 +110,8 @@ export function StatsClient({
   members,
   entries,
   readingAll,
+  mine,
+  mushaf,
   initialScope = "mine",
 }: {
   mode: Mode;
@@ -178,6 +120,9 @@ export function StatsClient({
   members: GroupMember[];
   entries: LogRow[];
   readingAll: ReadingRow[];
+  /** The signed-in user's own entries, all time (progress + hifz cards). */
+  mine: LogRow[];
+  mushaf: MushafId;
   initialScope?: Scope;
 }) {
   const reading = mode === "reading";
@@ -194,17 +139,13 @@ export function StatsClient({
       scope === "mine" ? entries.filter((e) => e.user_id === userId) : entries,
     [entries, scope, userId],
   );
-  // Readers have one category. Memorizers filter by All / Sabak / Revision -
-  // reading entries only appear under All (never counted as "new memorization").
+  // Readers have one category. Memorizers filter by All / Sabak / Sabak Para /
+  // Dhor - reading entries only appear under All.
   const chartEntries = useMemo(() => {
-    // The Sabak/Revision filter only exists in personal hifz view; never let a
-    // stale value silently filter the group heatmap.
+    // The type filter only exists in personal hifz view; never let a stale
+    // value silently filter the group heatmap.
     if (reading || scope === "group" || filter === "all") return scoped;
-    if (filter === "sabak")
-      return scoped.filter((e) => e.entry_type === "sabak");
-    return scoped.filter(
-      (e) => e.entry_type === "sabak_para" || e.entry_type === "dor",
-    );
+    return scoped.filter((e) => e.entry_type === filter);
   }, [scoped, filter, reading, scope]);
 
   // Streak from the user's own entries.
@@ -282,13 +223,6 @@ export function StatsClient({
   // This calendar week so far: Monday → today.
   const thisWeekDates = useMemo(() => weekDatesUpTo(today, today), [today]);
 
-  // Donut (hifz only): Sabak vs Revision (memorization only - excludes reading).
-  const sabakCount = scoped.filter((e) => e.entry_type === "sabak").length;
-  const revCount = scoped.filter(
-    (e) => e.entry_type === "sabak_para" || e.entry_type === "dor",
-  ).length;
-  const pieTotal = sabakCount + revCount;
-
   const loggedTodayCount = useMemo(
     () =>
       new Set(
@@ -304,6 +238,7 @@ export function StatsClient({
   }, [scoped, tz, thisWeekDates]);
 
   const totalEntries = chartEntries.length;
+  const noteCount = useMemo(() => mine.filter((e) => e.notes).length, [mine]);
 
   // ── Group khatmah (all-time, every entry type) ──────────────────────────
   // pages_equiv already converts juz/quarter/hizb → pages; page amounts are
@@ -311,7 +246,6 @@ export function StatsClient({
   const groupRead = pagesOf(readingAll);
   const khatmahs = Math.floor(groupRead / KHATMAH_PAGES);
   const khatmahProgress = +(groupRead - khatmahs * KHATMAH_PAGES).toFixed(1);
-  const khatmahPct = Math.min(100, (khatmahProgress / KHATMAH_PAGES) * 100);
 
   // ── Month browsing ────────────────────────────────────────────────────────
   // readingAll carries every page-bearing entry ever (no date window), so any
@@ -404,35 +338,6 @@ export function StatsClient({
   const monthActiveDays = monthBar.filter((d) => d.pages > 0).length;
   const monthName = monthLabel(month, today);
   const prevMonthName = monthLabel(addMonths(month, -1), today);
-
-  // ── Personal khatmah - bookmark position from the latest reading entry ──
-  const myKhatmah = useMemo(() => {
-    if (!reading) return null;
-    const mine = entries.filter((e) => e.user_id === userId);
-    const lastRead = mine.find(
-      (e) =>
-        (e.entry_type === "reading" || e.entry_type === "revising") && e.to_ref,
-    );
-    const page = pageFromRef(lastRead?.to_ref);
-    if (!lastRead || !page) return null;
-    const total = totalPages(lastRead.mushaf ?? "uthmani15");
-    const last14 = new Set(lastNDaysEndingOn(today, 14));
-    const pace =
-      pagesOf(
-        mine.filter(
-          (e) =>
-            (e.entry_type === "reading" || e.entry_type === "revising") &&
-            last14.has(localDate(e.logged_at, tz)),
-        ),
-      ) / 14;
-    const left = total - page;
-    return {
-      page,
-      total,
-      pct: Math.min(100, (page / total) * 100),
-      etaDays: pace > 0 && left > 0 ? Math.ceil(left / pace) : null,
-    };
-  }, [reading, entries, userId, tz, today]);
 
   // ── Personal insights + advice (mine scope) ───────────────────────────────
   // Signals + phrasing live in src/lib/insights.ts (pure, node-testable).
@@ -658,14 +563,16 @@ export function StatsClient({
       </header>
 
       <div className="space-y-4 px-5">
-        {/* All / Sabak / Revision toggle - hifz, personal scope only */}
+        {/* All / Sabak / Sabak Para / Dhor - hifz, personal scope only. Scopes
+            the heatmap and weekly pages below. */}
         {!reading && scope === "mine" && (
-          <div className="flex rounded-xl bg-surface-2 p-1 text-subhead">
+          <div className="flex rounded-xl bg-surface-2 p-1 text-footnote">
             {(
               [
                 { v: "all", label: "All" },
                 { v: "sabak", label: "Sabak" },
-                { v: "revision", label: "Revision" },
+                { v: "sabak_para", label: "Sabak Para" },
+                { v: "dor", label: "Dhor" },
               ] as { v: Filter; label: string }[]
             ).map((s) => (
               <button
@@ -788,7 +695,11 @@ export function StatsClient({
               <StatCard
                 label="All-time pages"
                 value={groupRead}
-                sub={`≈ ${Math.round(groupRead / 20)} juz together`}
+                sub={
+                  khatmahs > 0
+                    ? `${khatmahs} ${khatmahs === 1 ? "khatmah" : "khatmahs"} + ${Math.floor(khatmahProgress)} pages`
+                    : "read together"
+                }
                 onInfo={() => setShowCoverage(true)}
               />
               <StatCard
@@ -809,6 +720,19 @@ export function StatsClient({
             </>
           )}
         </div>
+
+        {/* ── MINE: where you are in the Quran, month by month ── */}
+        {scope === "mine" && (
+          <ProgressCard mode={mode} tz={tz} today={today} mushaf={mushaf} rows={mine} />
+        )}
+
+        {/* ── MINE (hifz): Sabak / Sabak Para / Dhor, in pages ── */}
+        {!reading && scope === "mine" && (
+          <HifzBreakdownCard rows={mine} tz={tz} today={today} />
+        )}
+
+        {/* ── GROUP: the khatmah we're on + history of past ones ── */}
+        {scope === "group" && <KhatmahCard rows={readingAll} tz={tz} today={today} />}
 
         {/* ── Month browser: page back through any past month ── */}
         <div className="rounded-2xl bg-surface p-4 shadow-e1">
@@ -872,7 +796,7 @@ export function StatsClient({
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
                   data={monthBar}
-                  margin={{ top: 4, right: 0, bottom: 0, left: -28 }}
+                  margin={{ top: 4, right: 0, bottom: 0, left: 0 }}
                 >
                   <CartesianGrid
                     vertical={false}
@@ -890,7 +814,7 @@ export function StatsClient({
                     tick={{ fontSize: 10, fill: colors.tick }}
                     axisLine={false}
                     tickLine={false}
-                    width={40}
+                    width={30}
                   />
                   <Tooltip
                     content={({ active, payload }) => (
@@ -914,81 +838,6 @@ export function StatsClient({
             </div>
           )}
         </div>
-
-        {/* ── MINE: personal khatmah progress from the bookmark ── */}
-        {scope === "mine" && myKhatmah && (
-          <div className="rounded-2xl bg-surface p-4 shadow-e1">
-            <div className="flex items-start justify-between">
-              <p className="text-callout font-semibold">Your khatmah</p>
-              <span className="text-caption tabular-nums text-faint">
-                page {myKhatmah.page} of {myKhatmah.total}
-              </span>
-            </div>
-            <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-surface-2">
-              <div
-                className="h-full rounded-full bg-accent transition-[width] duration-700"
-                style={{ width: `${myKhatmah.pct}%` }}
-              />
-            </div>
-            <p className="mt-1.5 text-footnote text-faint">
-              {Math.round(myKhatmah.pct)}% of the way through
-              {myKhatmah.etaDays
-                ? ` · ≈ ${myKhatmah.etaDays} days to finish at your pace`
-                : ""}
-            </p>
-          </div>
-        )}
-
-        {/* ── GROUP: khatmah tracker ── */}
-        {scope === "group" && (
-          <div className="rounded-2xl bg-surface p-4 shadow-e1">
-            <div className="flex items-start justify-between">
-              <p className="text-callout font-semibold">Group khatmah</p>
-              <span className="text-caption text-faint">
-                Uthmani · {KHATMAH_PAGES} pages
-              </span>
-            </div>
-            <div className="mt-3 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-              <span className="text-display tabular-nums">{groupRead}</span>
-              <span className="text-callout text-muted">pages read together</span>
-              <span className="text-footnote text-faint">
-                ≈ {Math.round(groupRead / 20)} juz
-              </span>
-            </div>
-
-            {/* Progress to the next completion */}
-            <div className="mt-4">
-              <div className="flex items-baseline justify-between text-footnote">
-                <span className="font-medium text-muted">
-                  Khatmah #{khatmahs + 1}
-                </span>
-                <span className="tabular-nums text-faint">
-                  {khatmahProgress} / {KHATMAH_PAGES}
-                </span>
-              </div>
-              <div className="mt-1.5 h-2.5 overflow-hidden rounded-full bg-surface-2">
-                <div
-                  className="h-full rounded-full bg-accent transition-[width] duration-700"
-                  style={{ width: `${khatmahPct}%` }}
-                />
-              </div>
-              <p className="mt-1.5 text-footnote text-faint">
-                {+(KHATMAH_PAGES - khatmahProgress).toFixed(1)} pages to go
-              </p>
-            </div>
-
-            {khatmahs > 0 && (
-              <div className="mt-3 flex items-center gap-2 rounded-xl bg-accent-tint px-3 py-2.5 text-accent">
-                <UtensilsCrossed className="size-4 shrink-0" />
-                <p className="text-footnote font-medium">
-                  {khatmahs} {khatmahs === 1 ? "khatmah" : "khatmahs"} completed
-                  · {khatmahs === 1 ? "a dawat is" : `${khatmahs} dawats are`}{" "}
-                  owed 🎉
-                </p>
-              </div>
-            )}
-          </div>
-        )}
 
         {/* ── GROUP: leaderboard - this month + all time per member ── */}
         {scope === "group" && (
@@ -1165,7 +1014,7 @@ export function StatsClient({
                 <ResponsiveContainer width="100%" height={150}>
                   <BarChart
                     data={weeklyBar}
-                    margin={{ top: 8, right: 4, bottom: 0, left: -24 }}
+                    margin={{ top: 8, right: 4, bottom: 0, left: 0 }}
                   >
                     <CartesianGrid vertical={false} stroke={colors.grid} />
                     <XAxis
@@ -1179,7 +1028,7 @@ export function StatsClient({
                       tick={{ fill: colors.tick, fontSize: 11 }}
                       tickLine={false}
                       axisLine={false}
-                      width={32}
+                      width={28}
                     />
                     <Tooltip
                       cursor={{ fill: colors.surface2 }}
@@ -1206,50 +1055,25 @@ export function StatsClient({
           </>
         )}
 
-        {/* New vs Revision donut - hifz, personal scope */}
-        {!reading && scope === "mine" && (
-          <Card title="Sabak vs Revision">
-            {pieTotal === 0 ? (
-              <Empty>No memorization logged yet.</Empty>
-            ) : (
-              <div className="flex items-center gap-5">
-                <ResponsiveContainer width={120} height={120}>
-                  <PieChart>
-                    <Pie
-                      data={[
-                        { name: "Sabak", value: sabakCount },
-                        { name: "Revision", value: revCount },
-                      ]}
-                      dataKey="value"
-                      isAnimationActive={false}
-                      innerRadius={34}
-                      outerRadius={56}
-                      paddingAngle={2}
-                      stroke="none"
-                    >
-                      <Cell fill={colors.accent} />
-                      <Cell fill={colors.accent} fillOpacity={0.32} />
-                    </Pie>
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="space-y-2 text-footnote">
-                  <Legend
-                    color={colors.accent}
-                    label="Sabak"
-                    value={sabakCount}
-                    total={pieTotal}
-                  />
-                  <Legend
-                    color={colors.accent}
-                    faded
-                    label="Revision"
-                    value={revCount}
-                    total={pieTotal}
-                  />
-                </div>
-              </div>
-            )}
-          </Card>
+        {/* ── MINE: notes live in the Journal ── */}
+        {scope === "mine" && (
+          <Link
+            href="/journal"
+            className="flex items-center gap-3 rounded-2xl bg-surface p-4 shadow-e1"
+          >
+            <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-accent-tint text-accent">
+              <NotebookPen className="size-4.5" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-callout font-semibold">Journal</span>
+              <span className="block text-footnote text-muted">
+                {noteCount > 0
+                  ? `${noteCount} ${noteCount === 1 ? "note" : "notes"}, by day or by juz`
+                  : "Every entry you’ve logged, by day or by juz"}
+              </span>
+            </span>
+            <ChevronRight className="size-5 shrink-0 text-faint" />
+          </Link>
         )}
       </div>
 
@@ -1376,32 +1200,6 @@ function Empty({ children }: { children: React.ReactNode }) {
     <div className="flex flex-col items-center gap-2 py-6 text-center">
       <TrendingUp className="size-6 text-faint" />
       <p className="max-w-[15rem] text-footnote text-muted">{children}</p>
-    </div>
-  );
-}
-
-function Legend({
-  color,
-  faded,
-  label,
-  value,
-  total,
-}: {
-  color: string;
-  faded?: boolean;
-  label: string;
-  value: number;
-  total: number;
-}) {
-  const pct = Math.round((value / total) * 100);
-  return (
-    <div className="flex items-center gap-2">
-      <span
-        className="size-2.5 rounded-full"
-        style={{ background: color, opacity: faded ? 0.32 : 1 }}
-      />
-      <span className="text-muted">{label}</span>
-      <span className="ml-auto tabular-nums text-faint">{pct}%</span>
     </div>
   );
 }

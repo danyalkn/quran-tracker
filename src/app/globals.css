@@ -28,6 +28,12 @@
   --danger: #b4453a; /* destructive (delete account) */
   --danger-tint: #f6e3e0;
 
+  /* Ordinal chart ramp: Sabak → Sabak Para → Dhor (new → oldest). One hue,
+     validated with the dataviz ordinal checks against the light surface. */
+  --chart-1: #157f43;
+  --chart-2: #3d9c65;
+  --chart-3: #66bd8b;
+
   /* Subtle, layered elevation - not heavy drop shadows. */
   --shadow-e1: 0 1px 2px rgba(28, 27, 25, 0.04), 0 1px 3px rgba(28, 27, 25, 0.06);
   --shadow-e2: 0 2px 4px rgba(28, 27, 25, 0.04), 0 4px 12px rgba(28, 27, 25, 0.06);
@@ -57,6 +63,11 @@
     --warn-tint: #2a2113;
     --danger: #e06a5c;
     --danger-tint: #2c1815;
+
+    /* Dark steps of the same ramp: Sabak stays the most prominent (lightest). */
+    --chart-1: #8ed4a6;
+    --chart-2: #5fae7f;
+    --chart-3: #3b8a5c;
 
     /* In dark mode lean on surface-lightening + hairline rings, not shadows. */
     --shadow-e1: 0 0 0 1px rgba(255, 255, 255, 0.04);
@@ -89,6 +100,10 @@
   --danger: #e06a5c;
   --danger-tint: #2c1815;
 
+  --chart-1: #8ed4a6;
+  --chart-2: #5fae7f;
+  --chart-3: #3b8a5c;
+
   --shadow-e1: 0 0 0 1px rgba(255, 255, 255, 0.04);
   --shadow-e2: 0 4px 16px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.04);
   --shadow-e3: 0 16px 40px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.05);
@@ -113,6 +128,9 @@
   --warn-tint: #f6ecd9;
   --danger: #b4453a;
   --danger-tint: #f6e3e0;
+  --chart-1: #157f43;
+  --chart-2: #3d9c65;
+  --chart-3: #66bd8b;
   --shadow-e1: 0 1px 2px rgba(28, 27, 25, 0.04), 0 1px 3px rgba(28, 27, 25, 0.06);
   --shadow-e2: 0 2px 4px rgba(28, 27, 25, 0.04), 0 4px 12px rgba(28, 27, 25, 0.06);
   --shadow-e3: 0 12px 32px rgba(28, 27, 25, 0.1);

@@ -6,6 +6,7 @@ import {
   getGroupMembers,
   getGroupEntries,
   getGroupPagesAllTime,
+  getMyEntriesAllTime,
 } from "@/lib/data";
 import { Placeholder } from "@/components/Placeholder";
 import { StatsClient } from "./StatsClient";
@@ -26,10 +27,11 @@ export default async function StatsPage() {
     );
   }
 
-  const [members, entries, readingAll] = await Promise.all([
+  const [members, entries, readingAll, mine] = await Promise.all([
     getGroupMembers(membership.group_id),
     getGroupEntries(membership.group_id, 180),
     getGroupPagesAllTime(membership.group_id),
+    getMyEntriesAllTime(membership.group_id, user.id),
   ]);
 
   return (
@@ -40,6 +42,8 @@ export default async function StatsPage() {
       members={members}
       entries={entries}
       readingAll={readingAll}
+      mine={mine}
+      mushaf={profile.mushaf ?? "uthmani15"}
     />
   );
 }
