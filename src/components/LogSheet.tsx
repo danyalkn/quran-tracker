@@ -35,7 +35,11 @@ import {
   rowJuzPage,
   serializeJuzPage,
 } from "@/lib/position";
-import { yesterdayLocal, zonedIso } from "@/lib/dates";
+import { localHm, yesterdayLocal, zonedIso } from "@/lib/dates";
+
+/** "Yesterday" stays loggable until this local time the next morning (people
+ *  often read past midnight). The database enforces the same cutoff. */
+const BACKDATE_CUTOFF = "03:00";
 import { cn } from "@/lib/cn";
 
 type Portion = "Full" | "Half" | "Quarter" | "Pages";
@@ -139,6 +143,9 @@ export function LogSheet({
   const [notes, setNotes] = useState("");
   const [showNotes, setShowNotes] = useState(false);
   const [when, setWhen] = useState<"today" | "yesterday">("today");
+  // Only between midnight and 3 AM can an entry go to yesterday; decided
+  // when the sheet opens, in the profile's timezone.
+  const [canBackdate, setCanBackdate] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // The defaults below read the newest entry of this type, but only when the
@@ -154,6 +161,7 @@ export function LogSheet({
     if (!open) return;
     setError(null);
     setWhen("today");
+    setCanBackdate(localHm(Date.now(), tz) < BACKDATE_CUTOFF);
     setNotes(editing?.notes ?? "");
     setShowNotes(Boolean(editing?.notes));
 
@@ -211,7 +219,7 @@ export function LogSheet({
       setPages(1);
       setStart(null);
     }
-  }, [open, initialType, editing, mush]);
+  }, [open, initialType, editing, mush, tz]);
 
   const backdating = when === "yesterday" && !editing;
 
@@ -564,8 +572,9 @@ export function LogSheet({
           </>
         )}
 
-        {/* When - backdate a forgotten entry to yesterday (new entries only) */}
-        {!editing && (
+        {/* When - backdate a forgotten entry to yesterday (new entries only,
+            and only before 3 AM, so a missed day can't be patched later) */}
+        {!editing && canBackdate && (
           <div className="mt-5">
             <div className="flex rounded-xl bg-surface-2 p-1 text-subhead">
               {(["today", "yesterday"] as const).map((w) => (
@@ -586,8 +595,8 @@ export function LogSheet({
             </div>
             {when === "yesterday" && (
               <p className="mt-1.5 px-1 text-footnote text-faint">
-                Forgot to log? This saves it for yesterday, so your streak stays
-                honest.
+                Read last night and forgot to log? This saves it for yesterday.
+                Open until 3 AM.
               </p>
             )}
           </div>
