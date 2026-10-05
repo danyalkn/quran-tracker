@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, Inbox, Bell } from "lucide-react";
+import { Check, Inbox, Bell, Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { deleteEntry, markEntriesChanged } from "@/lib/entryWrites";
 import type { GroupMember, LogRow } from "@/lib/types";
 import { localDate, todayLocal, timeLabel, dayLabel } from "@/lib/dates";
 import { describeEntry, quantityLabel } from "@/lib/format";
@@ -52,6 +53,38 @@ export function FeedClient({
     () => new Map(members.map((m) => [m.user_id, m])),
     [members],
   );
+
+  // Deleting your own entries: the first tap arms the button ("Delete"),
+  // the second removes the entry. It disarms itself after a few seconds.
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!confirming) return;
+    const t = setTimeout(() => setConfirming(null), 4000);
+    return () => clearTimeout(t);
+  }, [confirming]);
+
+  const removeEntry = async (id: string) => {
+    setConfirming(null);
+    setDeleteError(null);
+    const removed = entries.find((e) => e.id === id);
+    setEntries((prev) => prev.filter((e) => e.id !== id));
+    const err = await deleteEntry(id);
+    if (err) {
+      // Put it back where it was (newest first).
+      if (removed) {
+        setEntries((prev) =>
+          [...prev, removed].sort((a, b) =>
+            a.logged_at < b.logged_at ? 1 : a.logged_at > b.logged_at ? -1 : 0,
+          ),
+        );
+      }
+      setDeleteError(err);
+      return;
+    }
+    // Today may come back from the router cache with the old list.
+    markEntriesChanged();
+  };
 
   // Live-update the feed when anyone logs (in-app only - no push for feed).
   useEffect(() => {
@@ -190,6 +223,11 @@ export function FeedClient({
 
       {/* Feed */}
       <div className="mt-5 flex-1 space-y-5 overflow-y-auto px-5 pb-6">
+        {deleteError && (
+          <p className="rounded-lg bg-danger-tint px-3 py-2 text-footnote text-danger">
+            {deleteError}
+          </p>
+        )}
         {entries.length === 0 ? (
           <div className="flex flex-col items-center justify-center px-6 pt-12 text-center">
             <div className="grid size-16 place-items-center rounded-2xl bg-accent-tint text-accent">
@@ -239,6 +277,33 @@ export function FeedClient({
                           </span>
                         </div>
                       </div>
+                      {e.user_id === userId && !e.id.startsWith("temp-") && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            confirming === e.id
+                              ? removeEntry(e.id)
+                              : setConfirming(e.id)
+                          }
+                          aria-label={
+                            confirming === e.id
+                              ? "Tap again to delete this entry"
+                              : "Delete entry"
+                          }
+                          className={cn(
+                            "shrink-0 rounded-full transition-colors",
+                            confirming === e.id
+                              ? "bg-danger px-3 py-1.5 text-footnote font-semibold text-white"
+                              : "grid size-8 place-items-center text-faint hover:bg-danger-tint hover:text-danger",
+                          )}
+                        >
+                          {confirming === e.id ? (
+                            "Delete"
+                          ) : (
+                            <Trash2 className="size-4" />
+                          )}
+                        </button>
+                      )}
                     </div>
                   );
                 })}
