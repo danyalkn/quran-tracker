@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, Inbox, Bell, Trash2 } from "lucide-react";
+import { Check, Inbox, Bell, Trash2, ChevronDown } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { deleteEntry, markEntriesChanged } from "@/lib/entryWrites";
 import type { GroupMember, LogRow } from "@/lib/types";
 import { localDate, todayLocal, timeLabel, dayLabel } from "@/lib/dates";
 import { describeEntry, quantityLabel } from "@/lib/format";
+import { groupFeed, type FeedCard } from "@/lib/feedGroups";
+import { pagesPhrase } from "@/lib/position";
+import { ENTRY_META } from "@/lib/entries";
 import { cn } from "@/lib/cn";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
@@ -121,15 +124,17 @@ export function FeedClient({
     return s;
   }, [entries, tz, today]);
 
-  // Group entries by local day, newest first.
-  const groups = useMemo(() => {
-    const map = new Map<string, LogRow[]>();
-    for (const e of entries) {
-      const d = localDate(e.logged_at, tz);
-      (map.get(d) ?? map.set(d, []).get(d)!).push(e);
-    }
-    return [...map.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1));
-  }, [entries, tz]);
+  // One card per person per day, same-type entries merged into one line
+  // (src/lib/feedGroups.ts). Cards open up to show the individual entries.
+  const days = useMemo(() => groupFeed(entries, tz), [entries, tz]);
+  const [open, setOpen] = useState<Set<string>>(new Set());
+  const toggleCard = (key: string) =>
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
 
   const yesterday = (() => {
     const d = new Date(`${today}T12:00:00`);
@@ -239,72 +244,28 @@ export function FeedClient({
             </p>
           </div>
         ) : (
-          groups.map(([ymd, rows]) => (
+          days.map(({ ymd, cards }) => (
             <div key={ymd}>
               <p className="mb-2 px-1 text-footnote font-medium uppercase tracking-wider text-faint">
                 {dayHeading(ymd)}
               </p>
               <div className="space-y-2.5">
-                {rows.map((e) => {
-                  const m = memberMap.get(e.user_id);
-                  const amt = quantityLabel(e);
+                {cards.map((card) => {
+                  const key = `${ymd}:${card.user_id}`;
                   return (
-                    <div
-                      key={e.id}
-                      className="flex items-center gap-3 rounded-2xl bg-surface p-3.5 shadow-e1"
-                    >
-                      <Avatar
-                        name={m?.display_name ?? "Member"}
-                        src={m?.avatar_url}
-                        size={40}
-                      />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="truncate text-callout font-semibold">
-                            {e.user_id === userId
-                              ? "You"
-                              : (m?.display_name ?? "Member")}
-                          </span>
-                          <span className="shrink-0 text-caption text-faint tabular-nums">
-                            · {timeLabel(e.logged_at, tz)}
-                          </span>
-                        </div>
-                        <div className="mt-1.5 flex items-center gap-2">
-                          <Badge type={e.entry_type} />
-                          <span className="truncate text-footnote text-muted">
-                            {describeEntry(e)}
-                            {amt ? ` · ${amt}` : ""}
-                          </span>
-                        </div>
-                      </div>
-                      {e.user_id === userId && !e.id.startsWith("temp-") && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            confirming === e.id
-                              ? removeEntry(e.id)
-                              : setConfirming(e.id)
-                          }
-                          aria-label={
-                            confirming === e.id
-                              ? "Tap again to delete this entry"
-                              : "Delete entry"
-                          }
-                          className={cn(
-                            "shrink-0 rounded-full transition-colors",
-                            confirming === e.id
-                              ? "bg-danger px-3 py-1.5 text-footnote font-semibold text-white"
-                              : "grid size-8 place-items-center text-faint hover:bg-danger-tint hover:text-danger",
-                          )}
-                        >
-                          {confirming === e.id ? (
-                            "Delete"
-                          ) : (
-                            <Trash2 className="size-4" />
-                          )}
-                        </button>
-                      )}
-                    </div>
+                    <FeedCardView
+                      key={key}
+                      card={card}
+                      member={memberMap.get(card.user_id)}
+                      isMe={card.user_id === userId}
+                      tz={tz}
+                      expanded={open.has(key)}
+                      onToggle={() => toggleCard(key)}
+                      confirming={confirming}
+                      onDelete={(id) =>
+                        confirming === id ? removeEntry(id) : setConfirming(id)
+                      }
+                    />
                   );
                 })}
               </div>
@@ -313,5 +274,141 @@ export function FeedClient({
         )}
       </div>
     </div>
+  );
+}
+
+/** One person's day: a line per entry type, the day's pages in the corner,
+ *  and the individual entries (with delete, for your own) underneath. */
+function FeedCardView({
+  card,
+  member,
+  isMe,
+  tz,
+  expanded,
+  onToggle,
+  confirming,
+  onDelete,
+}: {
+  card: FeedCard;
+  member: GroupMember | undefined;
+  isMe: boolean;
+  tz: string;
+  expanded: boolean;
+  onToggle: () => void;
+  confirming: string | null;
+  onDelete: (id: string) => void;
+}) {
+  const name = isMe ? "You" : (member?.display_name ?? "Member");
+  const single = card.entries.length === 1;
+  const only = card.entries[0];
+  return (
+    <div className="rounded-2xl bg-surface p-3.5 shadow-e1">
+      <div className="flex items-start gap-3">
+        <Avatar
+          name={member?.display_name ?? "Member"}
+          src={member?.avatar_url}
+          size={40}
+        />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline gap-2">
+            <span className="truncate text-callout font-semibold">{name}</span>
+            <span className="shrink-0 text-caption text-faint tabular-nums">
+              · {timeLabel(card.latestAt, tz)}
+            </span>
+            {card.pages > 0 && (
+              <span className="ml-auto shrink-0 text-caption font-medium text-muted tabular-nums">
+                {pagesPhrase(card.pages)}
+              </span>
+            )}
+          </div>
+          <div className="mt-1.5 space-y-1">
+            {card.lines.map((line) => (
+              <div key={line.type} className="flex items-center gap-2">
+                {/* Fixed width so every line's text starts in one column. */}
+                <Badge type={line.type} className="w-[5.5rem] shrink-0 justify-center" />
+                <span className="truncate text-footnote text-muted">{line.text}</span>
+              </div>
+            ))}
+          </div>
+
+          {!single && (
+            <button
+              type="button"
+              onClick={onToggle}
+              aria-expanded={expanded}
+              className="mt-2 inline-flex items-center gap-1 text-caption font-medium text-accent"
+            >
+              {expanded ? "Hide entries" : `Show ${card.entries.length} entries`}
+              <ChevronDown
+                className={cn("size-3.5 transition-transform", expanded && "rotate-180")}
+              />
+            </button>
+          )}
+        </div>
+        {single && isMe && (
+          <DeleteButton
+            id={only.id}
+            confirming={confirming === only.id}
+            onClick={() => onDelete(only.id)}
+          />
+        )}
+      </div>
+
+      {!single && expanded && (
+        <div className="mt-2.5 divide-y divide-border border-t border-border pl-[3.25rem]">
+          {card.entries.map((e) => {
+            const amt = quantityLabel(e);
+            return (
+              <div key={e.id} className="flex items-center gap-2 py-2">
+                <div className="min-w-0 flex-1">
+                  <p className="text-caption text-faint tabular-nums">
+                    {timeLabel(e.logged_at, tz)} · {ENTRY_META[e.entry_type].label}
+                  </p>
+                  <p className="truncate text-footnote text-foreground">
+                    {describeEntry(e)}
+                    {amt ? <span className="text-muted"> · {amt}</span> : null}
+                  </p>
+                </div>
+                {isMe && (
+                  <DeleteButton
+                    id={e.id}
+                    confirming={confirming === e.id}
+                    onClick={() => onDelete(e.id)}
+                  />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Two-tap delete: a trash icon, then a red "Delete" to confirm. */
+function DeleteButton({
+  id,
+  confirming,
+  onClick,
+}: {
+  id: string;
+  confirming: boolean;
+  onClick: () => void;
+}) {
+  if (id.startsWith("temp-")) return null;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={confirming ? "Tap again to delete this entry" : "Delete entry"}
+      className={cn(
+        "shrink-0 rounded-full transition-colors",
+        confirming
+          ? "bg-danger px-3 py-1.5 text-footnote font-semibold text-white"
+          : "grid size-8 place-items-center text-faint hover:bg-danger-tint hover:text-danger",
+      )}
+    >
+      {confirming ? "Delete" : <Trash2 className="size-4" />}
+    </button>
   );
 }
