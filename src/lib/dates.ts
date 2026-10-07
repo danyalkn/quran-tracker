@@ -215,14 +215,28 @@ function prevYmd(ymd: string): string {
   return d.toLocaleDateString("en-CA");
 }
 
+/** Yesterday stays loggable until this local time the next morning (people
+ *  often read past midnight). The database trigger log_entries_backdate_guard
+ *  enforces the same cutoff. */
+export const BACKDATE_CUTOFF = "03:00";
+
 /**
  * Current streak = consecutive local days with ≥1 entry, counting back from
  * today (or from yesterday if nothing logged yet today, so the streak doesn't
- * read 0 until a full day is actually missed).
+ * read 0 until a full day is actually missed). Before 3 AM yesterday can
+ * still be logged, so a streak that ran through the day before isn't broken
+ * yet either - this matches the midnight "you have until 3 AM" push.
  */
 export function currentStreak(loggedDays: Set<string>, tz: string): number {
   const today = todayLocal(tz);
   let cursor = loggedDays.has(today) ? today : prevYmd(today);
+  if (
+    !loggedDays.has(cursor) &&
+    cursor !== today &&
+    localHm(new Date(), tz) < BACKDATE_CUTOFF
+  ) {
+    cursor = prevYmd(cursor);
+  }
   if (!loggedDays.has(cursor)) return 0;
   let streak = 0;
   while (loggedDays.has(cursor)) {

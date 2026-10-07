@@ -35,11 +35,7 @@ import {
   rowJuzPage,
   serializeJuzPage,
 } from "@/lib/position";
-import { localHm, yesterdayLocal, zonedIso } from "@/lib/dates";
-
-/** "Yesterday" stays loggable until this local time the next morning (people
- *  often read past midnight). The database enforces the same cutoff. */
-const BACKDATE_CUTOFF = "03:00";
+import { BACKDATE_CUTOFF, localHm, yesterdayLocal, zonedIso } from "@/lib/dates";
 import { cn } from "@/lib/cn";
 
 type Portion = "Full" | "Half" | "Quarter" | "Pages";
@@ -156,6 +152,29 @@ export function LogSheet({
   useEffect(() => {
     lastRef.current = lastOfType;
   }, [lastOfType]);
+
+  // An open sheet can outlive the window either way (an iPhone puts the app
+  // away with the sheet up): re-check when the app comes back to the front.
+  // If yesterday was picked and has since closed, say so instead of quietly
+  // saving to the wrong day.
+  const whenRef = useRef(when);
+  useEffect(() => {
+    whenRef.current = when;
+  }, [when]);
+  useEffect(() => {
+    if (!open) return;
+    const recheck = () => {
+      if (document.visibilityState !== "visible") return;
+      const ok = localHm(Date.now(), tz) < BACKDATE_CUTOFF;
+      setCanBackdate(ok);
+      if (!ok && whenRef.current === "yesterday") {
+        setWhen("today");
+        setError("It’s past 3 AM, so yesterday is closed. This will save for today.");
+      }
+    };
+    document.addEventListener("visibilitychange", recheck);
+    return () => document.removeEventListener("visibilitychange", recheck);
+  }, [open, tz]);
 
   useEffect(() => {
     if (!open) return;
@@ -287,10 +306,21 @@ export function LogSheet({
     !reading && start == null && (sabak || portion === "Pages");
 
   const save = () => {
-    // Backdate to 8pm yesterday *in the profile's timezone* - every consumer
-    // (streaks, daily bars, feed grouping) buckets by that zone, not the
-    // device's, and the two can differ.
-    const loggedAt = backdating ? zonedIso(yesterdayLocal(tz), 20, tz) : null;
+    // Last line of defence for a sheet opened before 3 AM and saved after:
+    // keep it open (nothing typed is lost) rather than send an entry the
+    // database will refuse.
+    if (backdating && localHm(Date.now(), tz) >= BACKDATE_CUTOFF) {
+      setCanBackdate(false);
+      setWhen("today");
+      setError("It’s past 3 AM, so yesterday is closed. Save it for today instead?");
+      return;
+    }
+    // Backdate to 11:59 PM yesterday *in the profile's timezone* - every
+    // consumer (streaks, daily bars, feed grouping) buckets by that zone, not
+    // the device's. Late, because a backdate now only happens between
+    // midnight and 3 AM for last night's session: it must sort after anything
+    // already logged yesterday, or an earlier bookmark would win.
+    const loggedAt = backdating ? zonedIso(yesterdayLocal(tz), 23, tz, 59) : null;
     if (reading) {
       const amt = Number(pagesRead);
       if (!pagesRead.trim() || Number.isNaN(amt) || amt <= 0) {

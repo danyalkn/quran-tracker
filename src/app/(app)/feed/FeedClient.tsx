@@ -5,7 +5,13 @@ import { Check, Inbox, Bell, Trash2, ChevronDown } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { deleteEntry, markEntriesChanged } from "@/lib/entryWrites";
 import type { GroupMember, LogRow } from "@/lib/types";
-import { localDate, todayLocal, timeLabel, dayLabel } from "@/lib/dates";
+import {
+  localDate,
+  todayLocal,
+  timeLabel,
+  dayLabel,
+  lastNDaysEndingOn,
+} from "@/lib/dates";
 import { describeEntry, quantityLabel } from "@/lib/format";
 import { groupFeed, type FeedCard } from "@/lib/feedGroups";
 import { pagesPhrase } from "@/lib/position";
@@ -126,7 +132,13 @@ export function FeedClient({
 
   // One card per person per day, same-type entries merged into one line
   // (src/lib/feedGroups.ts). Cards open up to show the individual entries.
-  const days = useMemo(() => groupFeed(entries, tz), [entries, tz]);
+  // The feed loads the last 30×24 hours, so its oldest local day is cut
+  // part-way; with day totals on each card that would show a wrong total.
+  // Keep only whole days (the last 30 calendar days, today included).
+  const days = useMemo(() => {
+    const floor = lastNDaysEndingOn(today, 30)[0];
+    return groupFeed(entries, tz).filter((d) => d.ymd >= floor);
+  }, [entries, tz, today]);
   const [open, setOpen] = useState<Set<string>>(new Set());
   const toggleCard = (key: string) =>
     setOpen((prev) => {

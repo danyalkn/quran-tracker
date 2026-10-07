@@ -311,6 +311,8 @@ export function TodayClient({
 
     if (error || !data) {
       setEntries((prev) => prev.filter((e) => e.id !== tempId));
+      // Don't leave "Saved to yesterday." up next to the failure.
+      setNotice(null);
       setError(error?.message ?? "Couldn’t save that entry. Try again.");
       return;
     }
